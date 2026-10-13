@@ -5,6 +5,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\HandleCors;
+use Illuminate\Http\Request;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -21,6 +22,12 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role' => EnsureRole::class,
         ]);
+
+        // Unauthenticated API requests must get a JSON 401, never a redirect to
+        // a (non-existent, API-only) login route.
+        $middleware->redirectGuestsTo(
+            fn (Request $request) => $request->expectsJson() || $request->is('api/*') ? null : '/login'
+        );
 
         $middleware->throttleApi('60,1');
     })

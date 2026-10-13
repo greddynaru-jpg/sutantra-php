@@ -1,5 +1,11 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\HomePageBannerController;
+use App\Http\Controllers\Api\Admin\HomePagePolicyController;
+use App\Http\Controllers\Api\Admin\HomePageVisionController;
+use App\Http\Controllers\Api\Admin\ProductCategoryController;
+use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
+use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CatalogController;
 use App\Http\Controllers\MediaController;
@@ -48,6 +54,44 @@ Route::prefix('auth')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
         Route::put('/profile', [AuthController::class, 'updateProfile']);
         Route::post('/logout', [AuthController::class, 'logout']);
+    });
+});
+
+// ── Admin: catalogue management (authenticated, ADMIN + SUPER_ADMIN) ──
+Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
+    Route::middleware('role:ADMIN,SUPER_ADMIN')->group(function () {
+        Route::get('/products', [AdminProductController::class, 'index']);
+        Route::post('/products', [AdminProductController::class, 'store']);
+        // POST is accepted alongside PUT/PATCH so multipart image uploads work
+        // (PHP does not parse multipart bodies for real PUT requests).
+        Route::match(['put', 'patch', 'post'], '/products/{product}', [AdminProductController::class, 'update']);
+        Route::delete('/products/{product}', [AdminProductController::class, 'destroy']);
+
+        Route::get('/categories', [ProductCategoryController::class, 'index']);
+        Route::post('/categories', [ProductCategoryController::class, 'store']);
+        Route::match(['put', 'patch', 'post'], '/categories/{category}', [ProductCategoryController::class, 'update']);
+        Route::delete('/categories/{category}', [ProductCategoryController::class, 'destroy']);
+
+        Route::get('/banners', [HomePageBannerController::class, 'index']);
+        Route::post('/banners', [HomePageBannerController::class, 'store']);
+        Route::match(['put', 'patch', 'post'], '/banners/{banner}', [HomePageBannerController::class, 'update']);
+        Route::delete('/banners/{banner}', [HomePageBannerController::class, 'destroy']);
+
+        Route::get('/policies', [HomePagePolicyController::class, 'index']);
+        Route::post('/policies', [HomePagePolicyController::class, 'store']);
+        Route::match(['put', 'patch', 'post'], '/policies/{policy}', [HomePagePolicyController::class, 'update']);
+        Route::delete('/policies/{policy}', [HomePagePolicyController::class, 'destroy']);
+
+        Route::get('/vision', [HomePageVisionController::class, 'show']);
+        Route::match(['put', 'patch', 'post'], '/vision', [HomePageVisionController::class, 'update']);
+    });
+
+    // User management is restricted to SUPER_ADMIN.
+    Route::middleware('role:SUPER_ADMIN')->group(function () {
+        Route::get('/users', [AdminUserController::class, 'index']);
+        Route::post('/users', [AdminUserController::class, 'store']);
+        Route::match(['put', 'patch', 'post'], '/users/{user}', [AdminUserController::class, 'update']);
+        Route::delete('/users/{user}', [AdminUserController::class, 'destroy']);
     });
 });
 

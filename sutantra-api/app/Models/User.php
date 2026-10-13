@@ -46,4 +46,14 @@ class User extends Authenticatable
     {
         return in_array($this->role, [self::ROLE_ADMIN, self::ROLE_SUPER_ADMIN], true);
     }
+
+    public function carts()
+    {
+        return $this->hasMany(Cart::class, 'user_id');
+    }
+
+    public function orders()
+    {
+        return $this->hasMany(Order::class, 'user_id');
+    }
 }
