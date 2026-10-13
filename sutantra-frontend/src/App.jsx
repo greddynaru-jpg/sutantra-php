@@ -1,6 +1,12 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { roleHome, useAuth } from "./contexts/AuthContext";
+import AdminBannersPage from "./pages/AdminBannersPage";
+import AdminCategoriesPage from "./pages/AdminCategoriesPage";
 import AdminDashboardPage from "./pages/AdminDashboardPage";
+import AdminPoliciesPage from "./pages/AdminPoliciesPage";
+import AdminProductsPage from "./pages/AdminProductsPage";
+import AdminUsersPage from "./pages/AdminUsersPage";
+import AdminVisionPage from "./pages/AdminVisionPage";
 import CartPage from "./pages/CartPage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
@@ -37,6 +43,30 @@ export default function App() {
       <Route
         path="/admin"
         element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminDashboardPage /></RequireAuth>}
+      />
+      <Route
+        path="/admin/products"
+        element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminProductsPage /></RequireAuth>}
+      />
+      <Route
+        path="/admin/categories"
+        element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminCategoriesPage /></RequireAuth>}
+      />
+      <Route
+        path="/admin/banners"
+        element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminBannersPage /></RequireAuth>}
+      />
+      <Route
+        path="/admin/vision"
+        element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminVisionPage /></RequireAuth>}
+      />
+      <Route
+        path="/admin/policies"
+        element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminPoliciesPage /></RequireAuth>}
+      />
+      <Route
+        path="/admin/users"
+        element={<RequireAuth roles={["SUPER_ADMIN"]}><AdminUsersPage /></RequireAuth>}
       />
       <Route
         path="/super-admin"

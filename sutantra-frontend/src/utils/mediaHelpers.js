@@ -15,6 +15,16 @@ export const CATEGORY_PLACEHOLDER = `data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="150" viewBox="0 0 200 150"><rect width="200" height="150" fill="#f1ebe1"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#536a57" font-family="sans-serif" font-size="16">Sutantra Foods</text></svg>'
 )}`;
 
+export const BANNER_PLACEHOLDER = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" fill="#f1ebe1"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#536a57" font-family="sans-serif" font-size="26">Banner image</text></svg>'
+)}`;
+
+export function bannerImageUrl(imageUrl) {
+  if (!imageUrl) return BANNER_PLACEHOLDER;
+  if (/^https?:\/\//i.test(imageUrl) || imageUrl.startsWith("data:")) return imageUrl;
+  return mediaUrl(imageUrl);
+}
+
 export function productImageUrl(imageUrl) {
   if (!imageUrl) return PRODUCT_PLACEHOLDER;
   if (/^https?:\/\//i.test(imageUrl) || imageUrl.startsWith("data:")) return imageUrl;

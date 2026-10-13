@@ -174,3 +174,124 @@ export function removeCartItem(itemId) {
 export function clearCart() {
   return request("/api/cart", { method: "DELETE" });
 }
+
+// ── Admin: catalogue management (ADMIN + SUPER_ADMIN) ─────────────
+//
+// Writes are sent as multipart/form-data so image files can travel alongside
+// the fields. Boolean fields are serialised as "1"/"0" for Laravel's boolean
+// rule; `image` is only appended when the admin picked a new file.
+
+function buildFormData(fields, imageFile) {
+  const data = new FormData();
+  Object.entries(fields).forEach(([key, value]) => {
+    if (value === undefined || value === null) return;
+    if (typeof value === "boolean") {
+      data.append(key, value ? "1" : "0");
+    } else {
+      data.append(key, value);
+    }
+  });
+  if (imageFile) {
+    data.append("image", imageFile);
+  }
+  return data;
+}
+
+function adminWrite(path, fields, imageFile, method = "POST") {
+  return request(path, { method, body: buildFormData(fields, imageFile) });
+}
+
+// Products
+export function getAdminProducts() {
+  return request("/api/admin/products");
+}
+
+export function createProduct(fields, imageFile) {
+  return adminWrite("/api/admin/products", fields, imageFile);
+}
+
+export function updateProduct(id, fields, imageFile) {
+  return adminWrite(`/api/admin/products/${id}`, fields, imageFile);
+}
+
+export function deleteProduct(id) {
+  return request(`/api/admin/products/${id}`, { method: "DELETE" });
+}
+
+// Categories
+export function getAdminCategories() {
+  return request("/api/admin/categories");
+}
+
+export function createCategory(fields, imageFile) {
+  return adminWrite("/api/admin/categories", fields, imageFile);
+}
+
+export function updateCategory(id, fields, imageFile) {
+  return adminWrite(`/api/admin/categories/${id}`, fields, imageFile);
+}
+
+export function deleteCategory(id) {
+  return request(`/api/admin/categories/${id}`, { method: "DELETE" });
+}
+
+// Banners
+export function getAdminBanners() {
+  return request("/api/admin/banners");
+}
+
+export function createBanner(fields, imageFile) {
+  return adminWrite("/api/admin/banners", fields, imageFile);
+}
+
+export function updateBanner(id, fields, imageFile) {
+  return adminWrite(`/api/admin/banners/${id}`, fields, imageFile);
+}
+
+export function deleteBanner(id) {
+  return request(`/api/admin/banners/${id}`, { method: "DELETE" });
+}
+
+// Homepage vision (singleton)
+export function getAdminVision() {
+  return request("/api/admin/vision");
+}
+
+export function updateVision(fields) {
+  return request("/api/admin/vision", { method: "PUT", body: JSON.stringify(fields) });
+}
+
+// Policies
+export function getAdminPolicies() {
+  return request("/api/admin/policies");
+}
+
+export function createPolicy(fields) {
+  return request("/api/admin/policies", { method: "POST", body: JSON.stringify(fields) });
+}
+
+export function updatePolicy(id, fields) {
+  return request(`/api/admin/policies/${id}`, { method: "PUT", body: JSON.stringify(fields) });
+}
+
+export function deletePolicy(id) {
+  return request(`/api/admin/policies/${id}`, { method: "DELETE" });
+}
+
+// Users (SUPER_ADMIN only)
+export function getAdminUsers(search = "") {
+  const query = search ? `?search=${encodeURIComponent(search)}` : "";
+  return request(`/api/admin/users${query}`);
+}
+
+export function createUser(fields) {
+  return request("/api/admin/users", { method: "POST", body: JSON.stringify(fields) });
+}
+
+export function updateUser(id, fields) {
+  return request(`/api/admin/users/${id}`, { method: "PUT", body: JSON.stringify(fields) });
+}
+
+export function deleteUser(id) {
+  return request(`/api/admin/users/${id}`, { method: "DELETE" });
+}

@@ -44,17 +44,26 @@ image serving) to `http://127.0.0.1:8000`. In production set
 
 ## Routes
 
-| Path               | Access              | Notes                                        |
-| ------------------ | ------------------- | -------------------------------------------- |
-| `/`                | public              | Homepage: About (vision), banners, categories, policies footer |
-| `/products`        | public              | Product listing; `?categoryId=<id>` filters |
-| `/policies/:slug`  | public              | Policy detail                                |
-| `/login`           | public              | Password-only login                          |
-| `/register`        | public              | New `USER` registration                      |
-| `/profile`         | authenticated       | Update email / phone / name                  |
-| `/cart`            | authenticated       | Cart shell (orders phase)                    |
-| `/admin`           | ADMIN, SUPER_ADMIN  | Admin dashboard shell                        |
-| `/super-admin`     | SUPER_ADMIN         | Super Admin dashboard shell                  |
+| Path                 | Access              | Notes                                        |
+| -------------------- | ------------------- | -------------------------------------------- |
+| `/`                  | public              | Homepage: About (vision), banners, categories, policies footer |
+| `/products`          | public              | Product listing; `?categoryId=<id>` filters |
+| `/policies/:slug`    | public              | Policy detail                                |
+| `/login`             | public              | Password-only login                          |
+| `/register`          | public              | New `USER` registration                      |
+| `/profile`           | authenticated       | Update email / phone / name                  |
+| `/cart`              | authenticated       | Cart shell (orders phase)                    |
+| `/admin`             | ADMIN, SUPER_ADMIN  | Admin dashboard (module launcher)            |
+| `/admin/products`    | ADMIN, SUPER_ADMIN  | Product CRUD + image upload                  |
+| `/admin/categories`  | ADMIN, SUPER_ADMIN  | Category CRUD + image upload                 |
+| `/admin/banners`     | ADMIN, SUPER_ADMIN  | Homepage banner CRUD + image upload          |
+| `/admin/vision`      | ADMIN, SUPER_ADMIN  | Edit the homepage vision (“About”) text      |
+| `/admin/policies`    | ADMIN, SUPER_ADMIN  | Footer policy CRUD                           |
+| `/admin/users`       | SUPER_ADMIN         | User / admin management                      |
+| `/super-admin`       | SUPER_ADMIN         | Super Admin dashboard                        |
+
+Route access is enforced in the UI (`RequireAuth`) **and** server-side by the
+API’s `role:` middleware, so hiding a link is never the only protection.
 
 ## Images
 
@@ -67,11 +76,13 @@ app builds URLs through `mediaUrl()` (`src/services/api.js`), which targets
 
 ```
 src/
-  components/    Brand, SiteHeader
+  components/    Brand, SiteHeader, AdminLayout, ImageField
   contexts/      AuthContext (token, roles, login/logout)
   pages/         HomePage, ProductsPage, LoginPage, RegisterPage,
                  ProfilePage, PolicyDetailPage, CartPage,
-                 AdminDashboardPage, SuperAdminDashboardPage
+                 AdminDashboardPage, SuperAdminDashboardPage,
+                 AdminProductsPage, AdminCategoriesPage, AdminBannersPage,
+                 AdminVisionPage, AdminPoliciesPage, AdminUsersPage
   services/api.js
   utils/mediaHelpers.js
   styles.css
