@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Admin\ProductCategoryController;
 use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
 use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\CatalogController;
 use App\Http\Controllers\MediaController;
 use App\Http\Resources\UserResource;
@@ -59,6 +60,16 @@ Route::prefix('auth')->group(function () {
         Route::put('/profile', [AuthController::class, 'updateProfile']);
         Route::post('/logout', [AuthController::class, 'logout']);
     });
+});
+
+// ── Authenticated cart (the cart always belongs to the token's user) ──
+Route::middleware('auth:sanctum')->prefix('cart')->group(function () {
+    Route::get('/', [CartController::class, 'show']);
+    Route::post('/items', [CartController::class, 'addItem']);
+    Route::patch('/items/{item}/increase', [CartController::class, 'increase']);
+    Route::patch('/items/{item}/decrease', [CartController::class, 'decrease']);
+    Route::delete('/items/{item}', [CartController::class, 'remove']);
+    Route::delete('/', [CartController::class, 'clear']);
 });
 
 // ── Admin: catalogue management (authenticated, ADMIN + SUPER_ADMIN) ──

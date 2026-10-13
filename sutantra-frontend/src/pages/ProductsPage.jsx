@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import SiteHeader from "../components/SiteHeader";
 import { useAuth } from "../contexts/AuthContext";
+import { useCart } from "../contexts/CartContext";
 import { addToCart, getProductCategories, getProducts } from "../services/api";
 import { productImageUrl } from "../utils/mediaHelpers";
 
 export default function ProductsPage() {
   const { user } = useAuth();
+  const { refresh: refreshCart } = useCart();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -85,6 +87,7 @@ export default function ProductsPage() {
       setSuccessMessage("");
       await addToCart(productId, 1);
       setSuccessMessage("Added to cart successfully.");
+      refreshCart();
     } catch (cartError) {
       setError(cartError.message || "Unable to add this product to the cart.");
     } finally {

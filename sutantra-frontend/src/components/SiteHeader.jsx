@@ -1,10 +1,12 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth, roleHome } from "../contexts/AuthContext";
+import { useCart } from "../contexts/CartContext";
 import Brand from "./Brand";
 
 export default function SiteHeader({ showLogin = false }) {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { count } = useCart();
 
   async function signOut() {
     await logout();
@@ -48,7 +50,9 @@ export default function SiteHeader({ showLogin = false }) {
       {user && (
         <div className="header-actions">
           <Link className="header-login" to={roleHome(user.role)}>{roleLabel}</Link>
-          <Link className="button button-light" to="/cart" aria-label="Your cart">🛒 Cart</Link>
+          <Link className="button button-light" to="/cart" aria-label={`Your cart, ${count} item${count === 1 ? "" : "s"}`}>
+            🛒 Cart{count > 0 ? ` (${count})` : ""}
+          </Link>
           <button className="button button-outline" type="button" onClick={signOut}>Logout</button>
         </div>
       )}

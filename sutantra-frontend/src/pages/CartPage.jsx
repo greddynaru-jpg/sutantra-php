@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Brand from "../components/Brand";
 import { useAuth } from "../contexts/AuthContext";
+import { useCart } from "../contexts/CartContext";
 import {
   clearCart,
   decreaseCartItemQuantity,
@@ -20,6 +21,7 @@ const DELIVERY_CHARGE = 40;
 
 export default function CartPage() {
   const { logout } = useAuth();
+  const { refresh: refreshCart } = useCart();
   const navigate = useNavigate();
 
   const [cart, setCart] = useState(null);
@@ -55,6 +57,7 @@ export default function CartPage() {
     try {
       const updated = await increaseCartItemQuantity(itemId);
       setCart(updated);
+      refreshCart();
     } catch (e) {
       setError(e.message || "Could not update quantity.");
     } finally {
@@ -67,6 +70,7 @@ export default function CartPage() {
     try {
       const updated = await decreaseCartItemQuantity(itemId);
       setCart(updated);
+      refreshCart();
     } catch (e) {
       setError(e.message || "Could not update quantity.");
     } finally {
@@ -79,6 +83,7 @@ export default function CartPage() {
     try {
       await removeCartItem(itemId);
       await loadCart();
+      refreshCart();
     } catch (e) {
       setError(e.message || "Could not remove item.");
     } finally {
@@ -92,6 +97,7 @@ export default function CartPage() {
     try {
       await clearCart();
       await loadCart();
+      refreshCart();
     } catch (e) {
       setError(e.message || "Could not clear cart.");
     } finally {
