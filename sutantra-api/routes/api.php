@@ -50,6 +50,10 @@ Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
     Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:login');
 
+    // Step 1 of the two-step login UI ("Get Verification Code"). Validates the
+    // identifier only; no code is generated or sent yet.
+    Route::post('/request-code', [AuthController::class, 'requestVerificationCode'])->middleware('throttle:login');
+
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
         Route::put('/profile', [AuthController::class, 'updateProfile']);

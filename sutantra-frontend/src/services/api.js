@@ -95,6 +95,16 @@ export function loginUser(identifier, password) {
   });
 }
 
+// Step 1 of the two-step login flow ("Get Verification Code"). Validates that
+// the identifier belongs to a registered account. No code is delivered yet;
+// real OTP delivery will replace this call later.
+export function requestVerificationCode(identifier) {
+  return request("/api/auth/request-code", {
+    method: "POST",
+    body: JSON.stringify({ identifier })
+  });
+}
+
 export function registerUser(user) {
   return request("/api/auth/register", {
     method: "POST",
