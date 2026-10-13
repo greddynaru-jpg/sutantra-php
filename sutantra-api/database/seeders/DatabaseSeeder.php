@@ -2,7 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -12,14 +11,17 @@ class DatabaseSeeder extends Seeder
 
     /**
      * Seed the application's database.
+     *
+     * Home page content is refreshed on every run. The initial SUPER_ADMIN is
+     * created once by SuperAdminSeeder (idempotent; password rotated later is
+     * preserved).
      */
     public function run(): void
     {
-        // User::factory(10)->create();
-
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
+        $this->call([
+            HomePageVisionSeeder::class,
+            HomePagePolicySeeder::class,
+            SuperAdminSeeder::class,
         ]);
     }
 }
