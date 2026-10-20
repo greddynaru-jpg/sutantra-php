@@ -18,7 +18,15 @@ class ProductCategoryResource extends JsonResource
             'description' => $this->description,
             'imageUrl' => $this->image_url,
             'active' => (bool) $this->active,
+            // ── Two-level hierarchy ──────────────────────────────────
+            // parentId is null for a top-level category and points at the
+            // owning parent category for a subcategory.
+            'parentId' => $this->parent_id,
+            'isSubcategory' => $this->parent_id !== null,
+            'parent' => $this->whenLoaded('parent', fn () => new self($this->parent)),
+            'children' => self::collection($this->whenLoaded('children')),
             'productCount' => $this->whenCounted('products'),
+            'subcategoryCount' => $this->whenCounted('children'),
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
         ];

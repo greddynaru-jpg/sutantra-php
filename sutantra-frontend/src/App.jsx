@@ -3,6 +3,8 @@ import { roleHome, useAuth } from "./contexts/AuthContext";
 import AdminBannersPage from "./pages/AdminBannersPage";
 import AdminCategoriesPage from "./pages/AdminCategoriesPage";
 import AdminDashboardPage from "./pages/AdminDashboardPage";
+import AdminHomePage from "./pages/AdminHomePage";
+import AdminOffersPage from "./pages/AdminOffersPage";
 import AdminPoliciesPage from "./pages/AdminPoliciesPage";
 import AdminProductsPage from "./pages/AdminProductsPage";
 import AdminUsersPage from "./pages/AdminUsersPage";
@@ -61,21 +63,35 @@ export default function App() {
         path="/admin/categories"
         element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminCategoriesPage /></RequireAuth>}
       />
+      {/* Offer Codes is available to both administrators (matching the
+          catalogue modules); enforcement happens on the API too. */}
+      <Route
+        path="/admin/offers"
+        element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminOffersPage /></RequireAuth>}
+      />
+      {/* Banners, vision and policies are SUPER_ADMIN-only; they are managed
+          from Home Page Administration. Enforcement happens on the API too. */}
       <Route
         path="/admin/banners"
-        element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminBannersPage /></RequireAuth>}
+        element={<RequireAuth roles={["SUPER_ADMIN"]}><AdminBannersPage /></RequireAuth>}
       />
       <Route
         path="/admin/vision"
-        element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminVisionPage /></RequireAuth>}
+        element={<RequireAuth roles={["SUPER_ADMIN"]}><AdminVisionPage /></RequireAuth>}
       />
       <Route
         path="/admin/policies"
-        element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminPoliciesPage /></RequireAuth>}
+        element={<RequireAuth roles={["SUPER_ADMIN"]}><AdminPoliciesPage /></RequireAuth>}
       />
+      {/* Users is available to both administrators; an ADMIN sees only the
+          customer-management actions (enforced on the API too). */}
       <Route
         path="/admin/users"
-        element={<RequireAuth roles={["SUPER_ADMIN"]}><AdminUsersPage /></RequireAuth>}
+        element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminUsersPage /></RequireAuth>}
+      />
+      <Route
+        path="/admin/home-page"
+        element={<RequireAuth roles={["SUPER_ADMIN"]}><AdminHomePage /></RequireAuth>}
       />
       <Route
         path="/super-admin"

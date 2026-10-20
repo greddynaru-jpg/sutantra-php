@@ -21,6 +21,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             HomePageVisionSeeder::class,
             HomePagePolicySeeder::class,
+            HomePageLogoSeeder::class,
             SuperAdminSeeder::class,
         ]);
     }

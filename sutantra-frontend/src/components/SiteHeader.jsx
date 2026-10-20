@@ -26,7 +26,7 @@ export default function SiteHeader({ showLogin = false }) {
       <nav className="main-nav" aria-label="Main navigation">
         <Link to="/">Home</Link>
         <Link to="/products">Products</Link>
-        <a href="/#about">About</a>
+        <a href="/#team">Meet Our Team</a>
       </nav>
       {showLogin && !user && (
         <Link className="button button-primary home-login" to="/login">

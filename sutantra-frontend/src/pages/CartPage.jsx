@@ -118,9 +118,9 @@ export default function CartPage() {
           (sum, item) => sum + Number(item.price ?? item.product?.price ?? 0) * item.quantity,
           0
         );
-  // Delivery is charged at checkout only, after serviceability is confirmed.
-  // These legacy constants are retained for reference; checkout now uses the
-  // database-backed per-PIN charge.
+  // Delivery is not charged on the cart page.
+  // Checkout will calculate delivery after confirming PIN-code serviceability,
+  // using the database-backed delivery charge.
   const delivery = subtotal > 0 && subtotal < DELIVERY_THRESHOLD ? DELIVERY_CHARGE : 0;
   const grandTotal = subtotal;
 

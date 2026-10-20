@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AdminLayout from "../components/AdminLayout";
 import ImageField from "../components/ImageField";
 import {
@@ -20,6 +20,41 @@ const EMPTY = {
   stock_quantity: 0
 };
 
+/**
+ * Resolve the two-level category a product belongs to, using only the
+ * category data already returned by the existing APIs:
+ *   - product assigned to a main category   → main only, no subcategory
+ *   - product assigned to a subcategory     → its parent is the main category
+ * Nothing is ever guessed: unknown ids simply resolve to "—".
+ */
+function resolveProductCategory(product, categoryById) {
+  const categoryId = product.categoryId ?? product.category?.id ?? null;
+  const record = categoryId != null ? categoryById.get(String(categoryId)) : undefined;
+  const category = record || product.category || null;
+
+  if (!category) {
+    return { mainId: null, mainName: null, subId: null, subName: null };
+  }
+
+  const parentId = category.parentId ?? null;
+  if (parentId != null) {
+    const parent = categoryById.get(String(parentId));
+    return {
+      mainId: String(parentId),
+      mainName: parent?.name ?? null,
+      subId: String(category.id),
+      subName: category.name ?? null
+    };
+  }
+
+  return {
+    mainId: String(category.id),
+    mainName: category.name ?? null,
+    subId: null,
+    subName: null
+  };
+}
+
 export default function AdminProductsPage() {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -31,6 +66,13 @@ export default function AdminProductsPage() {
   const [form, setForm] = useState(null);
   const [imageFile, setImageFile] = useState(null);
   const [removeImage, setRemoveImage] = useState(false);
+
+  // List filters. Everything below is applied client-side to the already
+  // loaded list, so no API endpoint, parameter or response changes.
+  const [filterMainId, setFilterMainId] = useState("");
+  const [filterSubId, setFilterSubId] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [availability, setAvailability] = useState("");
 
   useEffect(() => {
     load();
@@ -52,6 +94,73 @@ export default function AdminProductsPage() {
     }
   }
 
+  const categoryById = useMemo(() => {
+    const map = new Map();
+    categories.forEach((category) => map.set(String(category.id), category));
+    return map;
+  }, [categories]);
+
+  const mainCategories = useMemo(
+    () => categories.filter((category) => !category.parentId),
+    [categories]
+  );
+
+  // The subcategory dropdown only ever lists subcategories of the selected
+  // main category (empty while "All main categories" is chosen).
+  const subOptions = useMemo(
+    () =>
+      filterMainId
+        ? categories.filter(
+            (category) => category.parentId && String(category.parentId) === filterMainId
+          )
+        : [],
+    [categories, filterMainId]
+  );
+
+  const hasActiveFilters = Boolean(
+    filterMainId || filterSubId || searchTerm.trim() || availability
+  );
+
+  // Main category → direct products + products of its subcategories.
+  // Subcategory → only products assigned to that subcategory.
+  // Name search and availability combine with whichever category is chosen.
+  const visibleRows = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    const rows = [];
+
+    for (const product of products) {
+      const info = resolveProductCategory(product, categoryById);
+
+      if (filterMainId && info.mainId !== filterMainId) continue;
+      if (filterSubId && info.subId !== filterSubId) continue;
+      if (availability === "available" && product.available === false) continue;
+      if (availability === "unavailable" && product.available !== false) continue;
+      if (term && !String(product.name || "").toLowerCase().includes(term)) continue;
+
+      rows.push({ product, info });
+    }
+
+    return rows;
+  }, [products, categoryById, filterMainId, filterSubId, availability, searchTerm]);
+
+  function changeMainCategory(value) {
+    setFilterMainId(value);
+    // Keep the chosen subcategory only while it still belongs to the newly
+    // selected main category; otherwise reset it.
+    if (filterSubId) {
+      const sub = categoryById.get(filterSubId);
+      const stillValid = Boolean(value) && Boolean(sub) && String(sub.parentId) === value;
+      if (!stillValid) setFilterSubId("");
+    }
+  }
+
+  function clearFilters() {
+    setFilterMainId("");
+    setFilterSubId("");
+    setSearchTerm("");
+    setAvailability("");
+  }
+
   function resetFormContext() {
     setImageFile(null);
     setRemoveImage(false);
@@ -61,7 +170,14 @@ export default function AdminProductsPage() {
     setError("");
     setNotice("");
     resetFormContext();
-    setForm({ ...EMPTY, category_id: categories[0]?.id ?? "" });
+    // Preselect the category currently being filtered (when it still exists)
+    // so a product created from a filtered view lands where the admin expects.
+    const filteredCategory = filterSubId || filterMainId;
+    const preset =
+      filteredCategory && categoryById.has(filteredCategory)
+        ? filteredCategory
+        : categories[0]?.id ?? "";
+    setForm({ ...EMPTY, category_id: preset });
   }
 
   function openEdit(product) {
@@ -137,7 +253,7 @@ export default function AdminProductsPage() {
 
   return (
     <AdminLayout
-      title="Products"
+      title="Product Management"
       subtitle="Create, edit and retire catalogue items. Uploads are stored in the shared media folder."
       actions={
         <button className="button button-primary" type="button" onClick={openCreate}>
@@ -147,6 +263,94 @@ export default function AdminProductsPage() {
     >
       {error && <div className="notice error" role="alert">{error}</div>}
       {notice && <div className="notice success" role="status">{notice}</div>}
+
+      {/* ── Compact filter toolbar (client-side, existing data only) ── */}
+      <div className="admin-panel admin-filter-bar">
+        <form
+          className="admin-filters"
+          role="search"
+          aria-label="Product filters"
+          onSubmit={(event) => event.preventDefault()}
+        >
+          <label className="admin-label" htmlFor="product-filter-main">
+            Main category
+            <select
+              id="product-filter-main"
+              value={filterMainId}
+              onChange={(event) => changeMainCategory(event.target.value)}
+            >
+              <option value="">All main categories</option>
+              {mainCategories.map((category) => (
+                <option key={category.id} value={String(category.id)}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="admin-label" htmlFor="product-filter-sub">
+            Subcategory
+            <select
+              id="product-filter-sub"
+              value={filterSubId}
+              disabled={!filterMainId || subOptions.length === 0}
+              onChange={(event) => setFilterSubId(event.target.value)}
+            >
+              <option value="">
+                {!filterMainId
+                  ? "Select a main category"
+                  : subOptions.length === 0
+                    ? "No subcategories"
+                    : "All subcategories"}
+              </option>
+              {subOptions.map((category) => (
+                <option key={category.id} value={String(category.id)}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="admin-label" htmlFor="product-filter-search">
+            Product name
+            <input
+              id="product-filter-search"
+              type="search"
+              placeholder="Search by name…"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+            />
+          </label>
+
+          <label className="admin-label" htmlFor="product-filter-availability">
+            Availability
+            <select
+              id="product-filter-availability"
+              value={availability}
+              onChange={(event) => setAvailability(event.target.value)}
+            >
+              <option value="">All</option>
+              <option value="available">Available</option>
+              <option value="unavailable">Unavailable</option>
+            </select>
+          </label>
+
+          <div className="admin-filter-foot">
+            <span className="admin-filter-count">
+              Showing {visibleRows.length} of {products.length}{" "}
+              {products.length === 1 ? "product" : "products"}
+            </span>
+            <button
+              className="button button-light"
+              type="button"
+              onClick={clearFilters}
+              disabled={!hasActiveFilters}
+            >
+              Clear filters
+            </button>
+          </div>
+        </form>
+      </div>
 
       {form && (
         <form className="admin-panel admin-form" onSubmit={submit}>
@@ -250,29 +454,43 @@ export default function AdminProductsPage() {
           <p className="admin-empty">Loading products…</p>
         ) : products.length === 0 ? (
           <p className="admin-empty">No products yet. Use “Add product” to create one.</p>
+        ) : visibleRows.length === 0 ? (
+          <div className="admin-empty">
+            <p>No products match your current filters.</p>
+            <button className="button button-light" type="button" onClick={clearFilters}>
+              Clear filters
+            </button>
+          </div>
         ) : (
-          <div className="admin-table-wrap">
+          <div
+            className="admin-table-wrap"
+            role="region"
+            aria-label="Product list"
+            tabIndex={0}
+          >
             <table className="admin-table">
               <thead>
                 <tr>
-                  <th>Image</th>
-                  <th>Name</th>
-                  <th>Category</th>
-                  <th>Price</th>
-                  <th>Unit</th>
-                  <th>Status</th>
-                  <th>Stock</th>
-                  <th className="admin-col-actions">Actions</th>
+                  <th scope="col">Image</th>
+                  <th scope="col">Name</th>
+                  <th scope="col">Main Category</th>
+                  <th scope="col">Subcategory</th>
+                  <th scope="col">Price</th>
+                  <th scope="col">Unit</th>
+                  <th scope="col">Stock Quantity</th>
+                  <th scope="col">Availability</th>
+                  <th scope="col" className="admin-col-actions">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {products.map((product) => (
+                {visibleRows.map(({ product, info }) => (
                   <tr key={product.id}>
                     <td>
                       <img
                         className="admin-thumb"
                         src={productImageUrl(product.imageUrl)}
                         alt=""
+                        loading="lazy"
                         onError={(event) => {
                           event.currentTarget.onerror = null;
                           event.currentTarget.src = PRODUCT_PLACEHOLDER;
@@ -280,15 +498,16 @@ export default function AdminProductsPage() {
                       />
                     </td>
                     <td className="admin-cell-strong">{product.name}</td>
-                    <td>{product.category?.name || "—"}</td>
+                    <td>{info.mainName || "—"}</td>
+                    <td>{info.subName || "—"}</td>
                     <td>₹{Number(product.price || 0).toFixed(2)}</td>
                     <td>{product.unit || "—"}</td>
+                    <td>{product.stockQuantity ?? 0}</td>
                     <td>
-                      <span className={`admin-badge ${product.available ? "ok" : "off"}`}>
-                        {product.available ? "Available" : "Unavailable"}
+                      <span className={`admin-badge ${product.available === false ? "off" : "ok"}`}>
+                        {product.available === false ? "Unavailable" : "Available"}
                       </span>
                     </td>
-                    <td>{product.stockQuantity ?? 0}</td>
                     <td className="admin-col-actions">
                       <button className="admin-link-btn" type="button" onClick={() => openEdit(product)}>
                         Edit

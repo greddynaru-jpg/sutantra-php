@@ -137,8 +137,20 @@ export function getActiveBanners() {
   return request("/api/catalog/banners");
 }
 
+export function getActiveOffers() {
+  return request("/api/catalog/offers");
+}
+
 export function getVision() {
   return request("/api/catalog/vision");
+}
+
+export function getLogo() {
+  return request("/api/catalog/logo");
+}
+
+export function getActiveTeamMembers() {
+  return request("/api/catalog/team");
 }
 
 export function getPublishedPolicies() {
@@ -210,7 +222,7 @@ export function createOrder(fields) {
 // the fields. Boolean fields are serialised as "1"/"0" for Laravel's boolean
 // rule; `image` is only appended when the admin picked a new file.
 
-function buildFormData(fields, imageFile) {
+function buildFormData(fields, imageFile, fileField = "image") {
   const data = new FormData();
   Object.entries(fields).forEach(([key, value]) => {
     if (value === undefined || value === null) return;
@@ -221,13 +233,13 @@ function buildFormData(fields, imageFile) {
     }
   });
   if (imageFile) {
-    data.append("image", imageFile);
+    data.append(fileField, imageFile);
   }
   return data;
 }
 
-function adminWrite(path, fields, imageFile, method = "POST") {
-  return request(path, { method, body: buildFormData(fields, imageFile) });
+function adminWrite(path, fields, imageFile, method = "POST", fileField = "image") {
+  return request(path, { method, body: buildFormData(fields, imageFile, fileField) });
 }
 
 // Products
@@ -323,4 +335,70 @@ export function updateUser(id, fields) {
 
 export function deleteUser(id) {
   return request(`/api/admin/users/${id}`, { method: "DELETE" });
+}
+
+// ── Admin: Home Page Administration (SUPER_ADMIN only) ────────────
+//
+// The Logo and "Our Team" tabs. Banners, vision and policies reuse the
+// functions above; the logo/team writes are multipart so images travel
+// alongside the fields (the team photo field is named "photo").
+
+export function getAdminLogo() {
+  return request("/api/admin/home-page/logo");
+}
+
+// Multipart uploads use POST (matching the existing banner/product pattern);
+// PHP does not populate uploaded files for PUT requests.
+export function updateLogo(imageFile) {
+  return adminWrite("/api/admin/home-page/logo", {}, imageFile);
+}
+
+export function getAdminTeam() {
+  return request("/api/admin/home-page/team");
+}
+
+export function createTeamMember(fields, photoFile) {
+  return adminWrite("/api/admin/home-page/team", fields, photoFile, "POST", "photo");
+}
+
+export function updateTeamMember(id, fields, photoFile) {
+  return adminWrite(`/api/admin/home-page/team/${id}`, fields, photoFile, "POST", "photo");
+}
+
+export function deleteTeamMember(id) {
+  return request(`/api/admin/home-page/team/${id}`, { method: "DELETE" });
+}
+
+// ── Admin: Offer Codes (ADMIN + SUPER_ADMIN) ──────────────────────
+//
+// Phase 1 is management only. Writes travel as JSON (offers carry no uploads);
+// there is deliberately no delete endpoint, so offers are deactivated instead
+// of removed, preserving their history.
+
+export function getAdminOffers(search = "", status = "") {
+  const params = new URLSearchParams();
+  if (search) params.set("search", search);
+  if (status) params.set("status", status);
+  const query = params.toString();
+  return request(`/api/admin/offers${query ? `?${query}` : ""}`);
+}
+
+export function getAdminOffer(id) {
+  return request(`/api/admin/offers/${id}`);
+}
+
+export function createOffer(fields) {
+  return request("/api/admin/offers", { method: "POST", body: JSON.stringify(fields) });
+}
+
+export function updateOffer(id, fields) {
+  return request(`/api/admin/offers/${id}`, { method: "PUT", body: JSON.stringify(fields) });
+}
+
+export function activateOffer(id) {
+  return request(`/api/admin/offers/${id}/activate`, { method: "PATCH" });
+}
+
+export function deactivateOffer(id) {
+  return request(`/api/admin/offers/${id}/deactivate`, { method: "PATCH" });
 }

@@ -20,6 +20,9 @@ const ROLE_LABELS = {
 
 export default function AdminUsersPage() {
   const { user: currentUser } = useAuth();
+  const isSuper = currentUser?.role === "SUPER_ADMIN";
+  // An ADMIN may only manage customer (USER) accounts; the API enforces this.
+  const canManage = (target) => isSuper || target.role === "USER";
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -127,10 +130,14 @@ export default function AdminUsersPage() {
   return (
     <AdminLayout
       title="Users"
-      subtitle="Manage customers, administrators and super administrators."
+      subtitle={
+        isSuper
+          ? "Manage customers, administrators and super administrators."
+          : "Manage customer accounts. Administrators and super administrators can only be changed by a super admin."
+      }
       actions={
         <button className="button button-primary" type="button" onClick={openCreate}>
-          + Add user
+          {isSuper ? "+ Add user" : "+ Add customer"}
         </button>
       }
     >
@@ -139,7 +146,7 @@ export default function AdminUsersPage() {
 
       {form && (
         <form className="admin-panel admin-form" onSubmit={submit}>
-          <h2>{form.id ? "Edit user" : "New user"}</h2>
+          <h2>{form.id ? (isSuper ? "Edit user" : "Edit customer") : isSuper ? "New user" : "New customer"}</h2>
           <div className="admin-form-grid">
             <label className="admin-label">
               Name
@@ -174,25 +181,28 @@ export default function AdminUsersPage() {
               Role
               <select
                 value={form.role}
+                disabled={!isSuper}
                 onChange={(event) => setField("role", event.target.value)}
               >
                 <option value="USER">Customer</option>
-                <option value="ADMIN">Admin</option>
-                <option value="SUPER_ADMIN">Super Admin</option>
+                {isSuper && <option value="ADMIN">Admin</option>}
+                {isSuper && <option value="SUPER_ADMIN">Super Admin</option>}
               </select>
             </label>
-            <label className="admin-label">
-              {form.id ? "New password (optional)" : "Password"}
-              <input
-                type="password"
-                minLength={6}
-                maxLength={72}
-                required={!form.id}
-                autoComplete="new-password"
-                value={form.password}
-                onChange={(event) => setField("password", event.target.value)}
-              />
-            </label>
+            {(isSuper || !form.id) && (
+              <label className="admin-label">
+                {form.id ? "New password (optional)" : "Password"}
+                <input
+                  type="password"
+                  minLength={6}
+                  maxLength={72}
+                  required={!form.id}
+                  autoComplete="new-password"
+                  value={form.password}
+                  onChange={(event) => setField("password", event.target.value)}
+                />
+              </label>
+            )}
             <label className="admin-check admin-label-inline">
               <input
                 type="checkbox"
@@ -205,7 +215,7 @@ export default function AdminUsersPage() {
 
           <div className="admin-form-actions">
             <button className="button button-primary" type="submit" disabled={busy}>
-              {busy ? "Saving…" : form.id ? "Save changes" : "Create user"}
+              {busy ? "Saving…" : form.id ? "Save changes" : isSuper ? "Create user" : "Create customer"}
             </button>
             <button className="button button-light" type="button" onClick={closeForm} disabled={busy}>
               Cancel
@@ -264,15 +274,27 @@ export default function AdminUsersPage() {
                       </span>
                     </td>
                     <td className="admin-col-actions">
-                      <button className="admin-link-btn" type="button" onClick={() => openEdit(user)}>
+                      <button
+                        className="admin-link-btn"
+                        type="button"
+                        onClick={() => openEdit(user)}
+                        disabled={!canManage(user)}
+                        title={!canManage(user) ? "Only a super admin can edit administrator accounts" : ""}
+                      >
                         Edit
                       </button>
                       <button
                         className="admin-link-btn danger"
                         type="button"
                         onClick={() => remove(user)}
-                        disabled={user.id === currentUser?.id}
-                        title={user.id === currentUser?.id ? "You cannot delete your own account" : ""}
+                        disabled={user.id === currentUser?.id || !canManage(user)}
+                        title={
+                          user.id === currentUser?.id
+                            ? "You cannot delete your own account"
+                            : !canManage(user)
+                              ? "Only a super admin can delete administrator accounts"
+                              : ""
+                        }
                       >
                         Delete
                       </button>
