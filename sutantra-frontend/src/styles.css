@@ -384,6 +384,38 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .text-btn-danger { background: none; border: 1px solid #e7b2aa; color: #9b332c; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer; transition: background 0.15s; }
 .text-btn-danger:hover { background: #fce9e7; }
 
+/* ── Checkout ────────────────────────────────────────────────── */
+.checkout-shell { width: min(1180px, calc(100% - 48px)); margin: 0 auto; padding: 20px 0 60px; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 28px; align-items: start; }
+.checkout-shell-single { grid-template-columns: minmax(0, 760px); justify-content: center; }
+.checkout-panel { background: #fffefa; border: 1px solid var(--line); border-radius: 12px; padding: clamp(22px, 4vw, 34px); box-shadow: 0 18px 50px #34483010; }
+.checkout-panel h1 { margin: 10px 0; font-family: "Playfair Display", Georgia, serif; font-size: clamp(30px, 4vw, 40px); font-weight: 500; letter-spacing: -0.8px; color: #243c2d; }
+.checkout-intro { margin: 0 0 22px; color: var(--muted); font-size: 14px; line-height: 1.7; }
+.checkout-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.checkout-field { display: grid; gap: 8px; color: #405043; font-size: 13px; font-weight: 600; }
+.checkout-field input, .checkout-field textarea { width: 100%; padding: 12px 14px; border: 1px solid #dedacd; border-radius: 8px; background: #fff; color: var(--ink); font: inherit; font-weight: 400; outline: none; transition: border-color .15s, box-shadow .15s; }
+.checkout-field input:focus, .checkout-field textarea:focus { border-color: #91a895; box-shadow: 0 0 0 3px #315c3d14; }
+.checkout-field textarea { resize: vertical; min-height: 96px; }
+.checkout-field.span-2 { grid-column: 1 / -1; }
+.pincode-status { margin: 18px 0 0; padding: 10px 12px; border-radius: 7px; font-size: 13px; font-weight: 600; background: #f5f2e9; color: #566258; }
+.pincode-status.serviceable { background: #e8f0e6; color: #2f5c3a; }
+.pincode-status.unserviceable, .pincode-status.invalid, .pincode-status.error { background: #fce9e7; color: #7d2f2a; }
+.checkout-summary-items { display: grid; gap: 12px; margin: 6px 0 18px; }
+.checkout-summary-item { display: flex; justify-content: space-between; gap: 16px; font-size: 13px; color: #405043; }
+.checkout-summary-name { display: grid; gap: 2px; }
+.checkout-summary-name small { color: var(--muted); font-size: 11px; font-weight: 400; }
+.checkout-summary-note { margin: 14px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.checkout-secure-note { margin: 14px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.checkout-confirmation-mark { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 50%; background: #e8f0e6; color: #2f5c3a; font-size: 28px; font-weight: 700; }
+.checkout-confirmation h1 { margin-top: 16px; }
+.checkout-facts { display: grid; gap: 10px; margin: 22px 0; padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: #fbf9f2; }
+.checkout-facts div { display: flex; justify-content: space-between; gap: 16px; font-size: 13px; }
+.checkout-facts dt { color: var(--muted); }
+.checkout-facts dd { margin: 0; font-weight: 700; color: var(--ink); }
+.checkout-address-snapshot { margin: 18px 0 22px; padding: 14px 16px; border-left: 3px solid var(--green); background: #f7f4ea; color: #4b574c; font-size: 13px; line-height: 1.6; white-space: pre-line; }
+.checkout-address-snapshot strong { display: block; margin-bottom: 6px; color: var(--ink); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+@media (max-width: 900px) { .checkout-shell { grid-template-columns: 1fr; width: min(100% - 32px, 760px); } }
+@media (max-width: 560px) { .checkout-grid { grid-template-columns: 1fr; } .checkout-field.span-2 { grid-column: auto; } }
+
 /* ── Admin / Super Admin dashboard (foundation shell) ─────────── */
 .admin-page { min-height: 100vh; background: linear-gradient(180deg, #f6f4ec 0%, #efeade 100%); padding-bottom: 60px; }
 .admin-header {

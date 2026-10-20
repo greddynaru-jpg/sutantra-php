@@ -1,10 +1,13 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import Brand from "../components/Brand";
 import { registerUser } from "../services/api";
+import { safeRedirect, withRedirect } from "../utils/navigation";
 
 export default function RegisterPage() {
+  const location = useLocation();
   const navigate = useNavigate();
+  const redirectTo = safeRedirect(location.search);
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -35,7 +38,7 @@ export default function RegisterPage() {
         password: form.password,
         password_confirmation: form.password_confirmation
       });
-      navigate("/login", {
+      navigate(withRedirect("/login", redirectTo), {
         replace: true,
         state: { message: "Registration successful. Please log in to continue." }
       });
@@ -121,7 +124,7 @@ export default function RegisterPage() {
             {busy ? "Creating account…" : "Create account"}
           </button>
         </form>
-        <p className="auth-switch">Already registered? <Link to="/login">Login</Link></p>
+        <p className="auth-switch">Already registered? <Link to={withRedirect("/login", redirectTo)}>Login</Link></p>
         <Link className="back-link" to="/">← Back to home</Link>
       </section>
     </main>

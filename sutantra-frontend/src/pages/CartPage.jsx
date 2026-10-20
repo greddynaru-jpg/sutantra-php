@@ -118,8 +118,11 @@ export default function CartPage() {
           (sum, item) => sum + Number(item.price ?? item.product?.price ?? 0) * item.quantity,
           0
         );
+  // Delivery is charged at checkout only, after serviceability is confirmed.
+  // These legacy constants are retained for reference; checkout now uses the
+  // database-backed per-PIN charge.
   const delivery = subtotal > 0 && subtotal < DELIVERY_THRESHOLD ? DELIVERY_CHARGE : 0;
-  const grandTotal = subtotal + delivery;
+  const grandTotal = subtotal;
 
   return (
     <main className="cart-page">
@@ -243,21 +246,12 @@ export default function CartPage() {
                 <span>Subtotal ({items.length} {items.length === 1 ? "item" : "items"})</span>
                 <span>{fmt(subtotal)}</span>
               </div>
-              <div className="summary-row">
-                <span>Delivery</span>
-                <span>{delivery === 0 ? (subtotal > 0 ? "Free" : "—") : fmt(delivery)}</span>
-              </div>
-              {delivery > 0 && (
-                <p className="delivery-note">
-                  Add {fmt(DELIVERY_THRESHOLD - subtotal)} more for free delivery
-                </p>
-              )}
               <hr className="summary-divider" />
               <div className="summary-total">
                 <span>Grand Total</span>
                 <span>{fmt(grandTotal)}</span>
               </div>
-              <button className="checkout-btn" type="button" disabled>
+              <button className="checkout-btn" type="button" onClick={() => navigate("/checkout")}>
                 Proceed to Checkout →
               </button>
             </aside>

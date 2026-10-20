@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\CatalogController;
+use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\MediaController;
 use App\Http\Resources\UserResource;
 use Illuminate\Http\Request;
@@ -70,6 +71,14 @@ Route::middleware('auth:sanctum')->prefix('cart')->group(function () {
     Route::patch('/items/{item}/decrease', [CartController::class, 'decrease']);
     Route::delete('/items/{item}', [CartController::class, 'remove']);
     Route::delete('/', [CartController::class, 'clear']);
+});
+
+// ── Authenticated checkout & order creation ──────────────────────────
+// The client sends only address fields + the PIN code; every amount is
+// recalculated on the server from the database.
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/checkout/quote', [CheckoutController::class, 'quote']);
+    Route::post('/orders', [CheckoutController::class, 'store']);
 });
 
 // ── Admin: catalogue management (authenticated, ADMIN + SUPER_ADMIN) ──

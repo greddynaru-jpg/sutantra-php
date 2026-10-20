@@ -185,6 +185,25 @@ export function clearCart() {
   return request("/api/cart", { method: "DELETE" });
 }
 
+// ── Checkout ──────────────────────────────────────────────────────
+//
+// Only the PIN code / address is sent; prices, delivery charges and totals
+// are always calculated by the backend.
+
+export function getCheckoutQuote(pincode) {
+  return request("/api/checkout/quote", {
+    method: "POST",
+    body: JSON.stringify({ pincode })
+  });
+}
+
+export function createOrder(fields) {
+  return request("/api/orders", {
+    method: "POST",
+    body: JSON.stringify(fields)
+  });
+}
+
 // ── Admin: catalogue management (ADMIN + SUPER_ADMIN) ─────────────
 //
 // Writes are sent as multipart/form-data so image files can travel alongside

@@ -8,6 +8,7 @@ import AdminProductsPage from "./pages/AdminProductsPage";
 import AdminUsersPage from "./pages/AdminUsersPage";
 import AdminVisionPage from "./pages/AdminVisionPage";
 import CartPage from "./pages/CartPage";
+import CheckoutPage from "./pages/CheckoutPage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import PolicyDetailPage from "./pages/PolicyDetailPage";
@@ -16,13 +17,13 @@ import ProductsPage from "./pages/ProductsPage";
 import RegisterPage from "./pages/RegisterPage";
 import SuperAdminDashboardPage from "./pages/SuperAdminDashboardPage";
 
-function RequireAuth({ children, roles = null }) {
+function RequireAuth({ children, roles = null, signInTo = "/login" }) {
   const { user, loading } = useAuth();
   if (loading) {
     return <main className="auth-page"><p role="status">Loading your account…</p></main>;
   }
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to={signInTo} replace />;
   }
   if (roles && !roles.includes(user.role)) {
     return <Navigate to={roleHome(user.role)} replace />;
@@ -40,6 +41,14 @@ export default function App() {
       <Route path="/products" element={<ProductsPage />} />
       <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
       <Route path="/cart" element={<RequireAuth><CartPage /></RequireAuth>} />
+      <Route
+        path="/checkout"
+        element={
+          <RequireAuth signInTo="/register?redirect=/checkout">
+            <CheckoutPage />
+          </RequireAuth>
+        }
+      />
       <Route
         path="/admin"
         element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminDashboardPage /></RequireAuth>}

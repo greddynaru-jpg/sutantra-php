@@ -3,11 +3,13 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import Brand from "../components/Brand";
 import { useAuth, roleHome } from "../contexts/AuthContext";
 import { requestVerificationCode } from "../services/api";
+import { safeRedirect, withRedirect } from "../utils/navigation";
 
 export default function LoginPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { login, authError } = useAuth();
+  const redirectTo = safeRedirect(location.search);
 
   // Two-step flow: "identifier" (Get Verification Code) → "credential" (Login).
   const [step, setStep] = useState("identifier");
@@ -50,7 +52,7 @@ export default function LoginPage() {
     setBusy(true);
     try {
       const user = await login(identifier.trim(), code);
-      navigate(roleHome(user.role), { replace: true });
+      navigate(redirectTo || roleHome(user.role), { replace: true });
     } catch (requestError) {
       setError(requestError.message || "Unable to log in. Please try again.");
     } finally {
@@ -138,7 +140,7 @@ export default function LoginPage() {
         )}
 
         <p className="auth-switch">
-          Don’t have an account? <Link to="/register">Register</Link>
+          Don’t have an account? <Link to={withRedirect("/register", redirectTo)}>Register</Link>
         </p>
         <Link className="back-link" to="/">← Back to home</Link>
       </section>
