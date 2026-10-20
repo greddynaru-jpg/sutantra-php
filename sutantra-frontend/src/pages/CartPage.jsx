@@ -118,8 +118,11 @@ export default function CartPage() {
           (sum, item) => sum + Number(item.price ?? item.product?.price ?? 0) * item.quantity,
           0
         );
+  // Delivery is intentionally not charged on the cart page: it will be
+  // calculated at checkout. The existing rule and constants are kept for that
+  // future implementation but are no longer added to the cart total.
   const delivery = subtotal > 0 && subtotal < DELIVERY_THRESHOLD ? DELIVERY_CHARGE : 0;
-  const grandTotal = subtotal + delivery;
+  const grandTotal = subtotal;
 
   return (
     <main className="cart-page">
@@ -243,15 +246,6 @@ export default function CartPage() {
                 <span>Subtotal ({items.length} {items.length === 1 ? "item" : "items"})</span>
                 <span>{fmt(subtotal)}</span>
               </div>
-              <div className="summary-row">
-                <span>Delivery</span>
-                <span>{delivery === 0 ? (subtotal > 0 ? "Free" : "—") : fmt(delivery)}</span>
-              </div>
-              {delivery > 0 && (
-                <p className="delivery-note">
-                  Add {fmt(DELIVERY_THRESHOLD - subtotal)} more for free delivery
-                </p>
-              )}
               <hr className="summary-divider" />
               <div className="summary-total">
                 <span>Grand Total</span>

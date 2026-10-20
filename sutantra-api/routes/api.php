@@ -1,8 +1,11 @@
 <?php
 
 use App\Http\Controllers\Api\Admin\HomePageBannerController;
+use App\Http\Controllers\Api\Admin\HomePageLogoController;
 use App\Http\Controllers\Api\Admin\HomePagePolicyController;
+use App\Http\Controllers\Api\Admin\HomePageTeamMemberController;
 use App\Http\Controllers\Api\Admin\HomePageVisionController;
+use App\Http\Controllers\Api\Admin\OfferCodeController;
 use App\Http\Controllers\Api\Admin\ProductCategoryController;
 use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
 use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
@@ -41,8 +44,11 @@ Route::prefix('catalog')->group(function () {
     Route::get('/categories', [CatalogController::class, 'categories']);
     Route::get('/banners', [CatalogController::class, 'banners']);
     Route::get('/vision', [CatalogController::class, 'vision']);
+    Route::get('/logo', [CatalogController::class, 'logo']);
+    Route::get('/team', [CatalogController::class, 'team']);
     Route::get('/policies', [CatalogController::class, 'policies']);
     Route::get('/policies/{slug}', [CatalogController::class, 'policy']);
+    Route::get('/offers', [CatalogController::class, 'offers']);
     Route::get('/products', [CatalogController::class, 'products']);
 });
 
@@ -87,6 +93,28 @@ Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
         Route::match(['put', 'patch', 'post'], '/categories/{category}', [ProductCategoryController::class, 'update']);
         Route::delete('/categories/{category}', [ProductCategoryController::class, 'destroy']);
 
+        // Offer codes (Phase 1: admin management only; no delete by design).
+        Route::get('/offers', [OfferCodeController::class, 'index']);
+        Route::post('/offers', [OfferCodeController::class, 'store']);
+        Route::get('/offers/{offer}', [OfferCodeController::class, 'show']);
+        Route::match(['put', 'patch', 'post'], '/offers/{offer}', [OfferCodeController::class, 'update']);
+        Route::patch('/offers/{offer}/activate', [OfferCodeController::class, 'activate']);
+        Route::patch('/offers/{offer}/deactivate', [OfferCodeController::class, 'deactivate']);
+
+        // User management is reachable by both administrators, but the
+        // controller enforces the finer rules: an ADMIN may only manage
+        // customer (USER) accounts and may never change passwords or grant
+        // privileged roles (§4, §5).
+        Route::get('/users', [AdminUserController::class, 'index']);
+        Route::post('/users', [AdminUserController::class, 'store']);
+        Route::match(['put', 'patch', 'post'], '/users/{user}', [AdminUserController::class, 'update']);
+        Route::delete('/users/{user}', [AdminUserController::class, 'destroy']);
+    });
+
+    // Super Admin dashboard: home page content. Banners, vision and policies
+    // used to be ADMIN + SUPER_ADMIN, but they are now Super-Admin-only modules
+    // managed through Home Page Administration.
+    Route::middleware('role:SUPER_ADMIN')->group(function () {
         Route::get('/banners', [HomePageBannerController::class, 'index']);
         Route::post('/banners', [HomePageBannerController::class, 'store']);
         Route::match(['put', 'patch', 'post'], '/banners/{banner}', [HomePageBannerController::class, 'update']);
@@ -99,14 +127,15 @@ Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
 
         Route::get('/vision', [HomePageVisionController::class, 'show']);
         Route::match(['put', 'patch', 'post'], '/vision', [HomePageVisionController::class, 'update']);
-    });
 
-    // User management is restricted to SUPER_ADMIN.
-    Route::middleware('role:SUPER_ADMIN')->group(function () {
-        Route::get('/users', [AdminUserController::class, 'index']);
-        Route::post('/users', [AdminUserController::class, 'store']);
-        Route::match(['put', 'patch', 'post'], '/users/{user}', [AdminUserController::class, 'update']);
-        Route::delete('/users/{user}', [AdminUserController::class, 'destroy']);
+        // Home Page Administration: logo + "Our Team".
+        Route::get('/home-page/logo', [HomePageLogoController::class, 'show']);
+        Route::match(['put', 'patch', 'post'], '/home-page/logo', [HomePageLogoController::class, 'update']);
+
+        Route::get('/home-page/team', [HomePageTeamMemberController::class, 'index']);
+        Route::post('/home-page/team', [HomePageTeamMemberController::class, 'store']);
+        Route::match(['put', 'patch', 'post'], '/home-page/team/{teamMember}', [HomePageTeamMemberController::class, 'update']);
+        Route::delete('/home-page/team/{teamMember}', [HomePageTeamMemberController::class, 'destroy']);
     });
 });
 

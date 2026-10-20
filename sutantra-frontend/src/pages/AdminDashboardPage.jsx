@@ -6,21 +6,26 @@ export default function AdminDashboardPage({ title = "Admin Dashboard" }) {
   const { user } = useAuth();
   const isSuper = user?.role === "SUPER_ADMIN";
 
+  // The dashboard shows exactly the modules the signed-in role may manage.
   const modules = [
     { to: "/admin/products", title: "Products", note: "Create, edit and retire catalogue items." },
     { to: "/admin/categories", title: "Categories", note: "Add and organise product categories." },
-    { to: "/admin/banners", title: "Banners", note: "Manage the rotating homepage banners." },
-    { to: "/admin/vision", title: "Vision", note: "Edit the homepage About text." },
-    { to: "/admin/policies", title: "Policies", note: "Footer documents: privacy, terms, refunds." }
+    { to: "/admin/offers", title: "Offer Codes", note: "Create and manage discount offer codes." },
+    { to: "/admin/users", title: "Users", note: isSuper ? "Manage customers and administrators." : "Manage customer accounts." }
   ];
 
   if (isSuper) {
-    modules.push({ to: "/admin/users", title: "Users", note: "Manage customers and administrators." });
+    modules.unshift({
+      to: "/admin/home-page",
+      title: "Home Page",
+      note: "Logo, banners, directors’ vision, policies and our team."
+    });
   }
 
   return (
     <AdminLayout
       title={title}
+      titleClassName="admin-dashboard-title"
       subtitle={`Welcome, ${user?.name || user?.email}. Manage the storefront content below.`}
     >
       <div className="admin-module-grid">

@@ -37,13 +37,20 @@ class HomePageBannerController extends Controller
     public function update(HomePageBannerRequest $request, HomePageBanner $banner, ImageUploadService $images): JsonResponse
     {
         $data = $this->payload($request);
+        $previous = $banner->image_url;
 
         if ($request->hasFile('image')) {
-            $images->delete($banner->image_url);
+            // Store the new image first; the previous file is only removed once
+            // the new reference has been saved, so a failed upload never
+            // destroys the existing banner artwork.
             $data['image_url'] = $images->store($request->file('image'), 'banners');
         }
 
         $banner->update($data);
+
+        if (isset($data['image_url']) && $previous !== $data['image_url']) {
+            $images->delete($previous);
+        }
 
         return (new HomePageBannerResource($banner->fresh()))->response();
     }

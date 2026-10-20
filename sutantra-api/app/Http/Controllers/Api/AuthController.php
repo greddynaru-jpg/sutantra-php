@@ -107,10 +107,21 @@ class AuthController extends Controller
 
     /**
      * Update name / email / phone, and optionally the password.
+     *
+     * Password permissions: an ADMIN account may never change its own password.
+     * Administrators' passwords are only ever set by a SUPER_ADMIN through the
+     * user-management workflow (`/api/admin/users`), so hiding the field in the
+     * UI is not enough — the restriction is enforced here as well.
      */
     public function updateProfile(ProfileRequest $request): JsonResponse
     {
         $user = $request->user();
+
+        if ($request->filled('password') && $user->role === User::ROLE_ADMIN) {
+            return response()->json([
+                'message' => 'Administrators cannot change their own password. Ask a super administrator to set it for you.',
+            ], 403);
+        }
 
         $user->forceFill([
             'name' => $request->input('name'),

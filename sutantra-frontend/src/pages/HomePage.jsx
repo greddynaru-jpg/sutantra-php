@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import SiteHeader from "../components/SiteHeader";
+import OfferCarousel from "../components/homepage/OfferCarousel";
+import TeamSection from "../components/homepage/TeamSection";
 import {
   getActiveBanners,
   getProductCategories,
-  getPublishedPolicies,
-  getVision
+  getPublishedPolicies
 } from "../services/api";
 import { categoryImageUrl, isSafeTarget } from "../utils/mediaHelpers";
 import { mediaUrl } from "../services/api";
@@ -22,7 +23,6 @@ export default function HomePage() {
   const [banners, setBanners] = useState([]);
   const [bannerError, setBannerError] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
-  const [vision, setVision] = useState(null);
   const [policies, setPolicies] = useState([]);
   const [categories, setCategories] = useState([]);
 
@@ -48,18 +48,6 @@ export default function HomePage() {
 
   useEffect(() => {
     let cancelled = false;
-    getVision()
-      .then((data) => {
-        if (!cancelled) setVision(data && data.visionText ? data : null);
-      })
-      .catch(() => {
-        if (!cancelled) setVision(null);
-      });
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
     getPublishedPolicies()
       .then((data) => {
         if (!cancelled) setPolicies(Array.isArray(data) ? data : []);
@@ -82,6 +70,20 @@ export default function HomePage() {
     return () => { cancelled = true; };
   }, []);
 
+  // A direct load of "/#team" (for example from the header on another page)
+  // happens before React has rendered the section, so the browser cannot
+  // scroll to it. Re-apply the hash once the asynchronously loaded homepage
+  // content above the target has settled.
+  useEffect(() => {
+    if (!window.location.hash) return undefined;
+    const id = decodeURIComponent(window.location.hash.slice(1));
+    if (!id) return undefined;
+    const timer = window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({ block: "start" });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [categories.length]);
+
   // Brief: homepage shows at most 5 clickable categories.
   const visibleCategories = categories.slice(0, 5);
 
@@ -93,15 +95,11 @@ export default function HomePage() {
     <div className="page-shell">
       <SiteHeader showLogin />
       <main>
-        {/* About — sourced from the home_page_vision content */}
-        {vision && (
-          <section id="about" className="vision-band" aria-label="Our Vision">
-            <div className="content-width vision-content">
-              {vision.heading && <h2>{vision.heading}</h2>}
-              <p className="vision-text">{vision.visionText}</p>
-            </div>
-          </section>
-        )}
+        {/* Offers — live offer codes from the database. The zero-height anchor
+            preserves the legacy "/#about" deep link now that the Vision
+            display is no longer part of the homepage. */}
+        <span id="about" />
+        <OfferCarousel />
 
         {/* Banners — one at a time, auto-rotate, responsive */}
         <section className="home-banners content-width" aria-label="Featured banners">
@@ -194,6 +192,9 @@ export default function HomePage() {
             </div>
           </section>
         )}
+
+        {/* Team — enabled members from the database */}
+        <TeamSection />
       </main>
 
       {/* Footer / Policies */}

@@ -10,7 +10,12 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * Super-admin user management (SUPER_ADMIN only).
+ * User management (ADMIN + SUPER_ADMIN).
+ *
+ * A SUPER_ADMIN has full control. An ADMIN may use the module to manage
+ * customer (USER) accounts only: they can create customers, and edit or delete
+ * existing customers, but they may never change a password, grant a privileged
+ * role, or modify/delete an administrator account (§4, §5).
  *
  * Guards prevent an administrator from locking themselves out or removing the
  * last remaining super admin. Accounts referenced by carts/orders cannot be
@@ -40,6 +45,15 @@ class UserController extends Controller
 
     public function store(UserRequest $request): JsonResponse
     {
+        $actor = $request->user();
+
+        // Only a super admin may provision privileged accounts.
+        if (! $actor->isSuperAdmin() && (string) $request->input('role') !== User::ROLE_USER) {
+            return response()->json([
+                'message' => 'Only a super administrator can create administrator accounts.',
+            ], 403);
+        }
+
         $user = User::create([
             'name' => $request->filled('name') ? trim((string) $request->input('name')) : null,
             'email' => strtolower(trim((string) $request->input('email'))),
@@ -57,6 +71,28 @@ class UserController extends Controller
         $actor = $request->user();
         $newRole = (string) $request->input('role');
         $newActive = $request->has('is_active') ? $request->boolean('is_active') : $user->is_active;
+
+        // An ADMIN may only manage customer accounts, may not change any
+        // password and may not grant a privileged role (§4, §5).
+        if (! $actor->isSuperAdmin()) {
+            if ($user->role !== User::ROLE_USER) {
+                return response()->json([
+                    'message' => 'Only a super administrator can modify administrator accounts.',
+                ], 403);
+            }
+
+            if ($request->filled('password')) {
+                return response()->json([
+                    'message' => 'Only a super administrator can change passwords.',
+                ], 403);
+            }
+
+            if ($newRole !== User::ROLE_USER) {
+                return response()->json([
+                    'message' => 'Only a super administrator can grant administrator roles.',
+                ], 403);
+            }
+        }
 
         if ($user->is($actor) && $newRole !== User::ROLE_SUPER_ADMIN) {
             return response()->json([
@@ -99,6 +135,13 @@ class UserController extends Controller
     public function destroy(Request $request, User $user): JsonResponse
     {
         $actor = $request->user();
+
+        // An ADMIN may only delete customer accounts (§5).
+        if (! $actor->isSuperAdmin() && $user->role !== User::ROLE_USER) {
+            return response()->json([
+                'message' => 'Only a super administrator can delete administrator accounts.',
+            ], 403);
+        }
 
         if ($user->is($actor)) {
             return response()->json([

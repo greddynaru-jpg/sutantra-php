@@ -12,13 +12,20 @@ use Illuminate\Http\JsonResponse;
 
 /**
  * Admin product-category management (ADMIN + SUPER_ADMIN).
+ *
+ * Categories form exactly two levels: top-level categories (parent_id NULL)
+ * and their direct subcategories. Validation in ProductCategoryRequest rejects
+ * third-level nesting, self-parenting and circular references.
  */
 class ProductCategoryController extends Controller
 {
     public function index(): JsonResponse
     {
+        // Top-level categories first, then their subcategories grouped by parent.
         $categories = ProductCategory::query()
             ->withCount('products')
+            ->withCount('children')
+            ->orderBy('parent_id')
             ->orderBy('name')
             ->get();
 
@@ -35,7 +42,7 @@ class ProductCategoryController extends Controller
 
         $category = ProductCategory::create($data);
 
-        return (new ProductCategoryResource($category->loadCount('products')))
+        return (new ProductCategoryResource($category->loadCount(['products', 'children'])))
             ->response()
             ->setStatusCode(201);
     }
@@ -54,7 +61,7 @@ class ProductCategoryController extends Controller
 
         $category->update($data);
 
-        return (new ProductCategoryResource($category->fresh()->loadCount('products')))->response();
+        return (new ProductCategoryResource($category->fresh()->loadCount(['products', 'children'])))->response();
     }
 
     public function destroy(ProductCategory $category, ImageUploadService $images): JsonResponse
@@ -62,6 +69,12 @@ class ProductCategoryController extends Controller
         if (Product::query()->where('category_id', $category->id)->exists()) {
             return response()->json([
                 'message' => 'This category still contains products. Move or delete them first.',
+            ], 409);
+        }
+
+        if ($category->children()->exists()) {
+            return response()->json([
+                'message' => 'This category still contains subcategories. Move or delete them first.',
             ], 409);
         }
 
@@ -81,6 +94,9 @@ class ProductCategoryController extends Controller
             'name' => trim((string) $request->input('name')),
             'description' => $request->filled('description')
                 ? trim((string) $request->input('description'))
+                : null,
+            'parent_id' => $request->filled('parent_id')
+                ? $request->integer('parent_id')
                 : null,
         ];
 
