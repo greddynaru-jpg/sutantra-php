@@ -1,0 +1,350 @@
+name: Build, Validate & Deploy to Hostinger
+
+# Trigger policy
+# --------------
+# * pull_request  -> build + tests only (never touches production)
+# * push to main  -> build + tests + deploy
+# * manual run    -> dry_run defaults to true (build + tests only)
+#
+# The deploy job is additionally attached to the GitHub "production"
+# environment. Add a required-reviewer protection rule there if you want a
+# second human approval before every live deployment.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and validate only (skip SSH deployment)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+  PHP_VERSION: "8.4"
+
+  # Verified Hostinger paths (see DEPLOYMENT.md).
+  APP_ROOT: "/home/u368424636/sutantra-api/sutantra-api"
+  WEB_ROOT: "/home/u368424636/domains/sutantrafoods.in/public_html"
+
+  # Verified public endpoints used for post-deployment checks.
+  SITE_URL: "https://sutantrafoods.in"
+  API_BASE: "https://sutantrafoods.in/sutantra-api"
+
+jobs:
+  build:
+    name: Build frontend & validate backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------------------------------
+      # Frontend
+      # ---------------------------------------------------------------------
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: sutantra-frontend/package-lock.json
+
+      - name: Verify production API URL
+        working-directory: sutantra-frontend
+        run: |
+          set -euo pipefail
+          expected='VITE_API_BASE_URL=https://sutantrafoods.in/sutantra-api'
+          if ! grep -qx "$expected" .env.production; then
+            echo "::error::sutantra-frontend/.env.production must contain exactly: $expected"
+            exit 1
+          fi
+
+      - name: Install frontend dependencies
+        working-directory: sutantra-frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: sutantra-frontend
+        run: npm run build
+
+      - name: Upload frontend build artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: sutantra-frontend/dist
+          if-no-files-found: error
+          retention-days: 7
+
+      # ---------------------------------------------------------------------
+      # Backend
+      # ---------------------------------------------------------------------
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: mbstring, pdo_sqlite, sqlite3, bcmath, gd, intl
+          coverage: none
+          tools: composer:v2
+
+      - name: Validate Composer manifest
+        working-directory: sutantra-api
+        run: composer validate --strict
+
+      - name: Install backend dependencies
+        working-directory: sutantra-api
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare test environment
+        working-directory: sutantra-api
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          php artisan key:generate --force
+
+      - name: Run backend tests
+        working-directory: sutantra-api
+        run: php artisan test
+
+      - name: Boot check (route registration)
+        working-directory: sutantra-api
+        run: php artisan route:list --except-vendor > /dev/null
+
+  deploy:
+    name: Deploy to Hostinger
+    needs: build
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.dry_run == false && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: https://sutantrafoods.in
+    # Never allow two deployments to overlap. Queued runs wait for the active one.
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download frontend build artefact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: sutantra-frontend/dist
+
+      # ---------------------------------------------------------------------
+      # SSH setup with pinned host-key verification
+      # ---------------------------------------------------------------------
+      - name: Configure SSH (pinned host key, no host-key checking bypass)
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST_FINGERPRINT: ${{ secrets.SSH_HOST_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+
+          printf '%s\n' "$SSH_KNOWN_HOSTS" | tr -d '\r' > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          if ! ssh-keygen -F "[${SSH_HOST}]:${SSH_PORT}" -f "$HOME/.ssh/known_hosts" > /dev/null; then
+            echo "::error::Pinned host key for [${SSH_HOST}]:${SSH_PORT} is missing from SSH_KNOWN_HOSTS."
+            exit 1
+          fi
+
+          actual="$(ssh-keygen -lf "$HOME/.ssh/known_hosts" -F "[${SSH_HOST}]:${SSH_PORT}" \
+            | grep -oE 'SHA256:[A-Za-z0-9+/=]+' | head -n 1)"
+          if [ -z "$actual" ]; then
+            echo "::error::Could not read a SHA256 fingerprint from SSH_KNOWN_HOSTS."
+            exit 1
+          fi
+          if [ -n "${SSH_HOST_FINGERPRINT:-}" ] && [ "$actual" != "$SSH_HOST_FINGERPRINT" ]; then
+            echo "::error::Host key fingerprint mismatch (expected $SSH_HOST_FINGERPRINT, got $actual)."
+            exit 1
+          fi
+          echo "Host key verified: $actual"
+
+          cat > "$HOME/.ssh/config" <<EOF
+          Host hostinger
+            HostName ${SSH_HOST}
+            Port ${SSH_PORT}
+            User ${SSH_USER}
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+            ServerAliveInterval 30
+            ServerAliveCountMax 4
+          EOF
+          chmod 600 "$HOME/.ssh/config"
+
+      - name: Preflight remote paths
+        run: |
+          set -euo pipefail
+          ssh hostinger "
+            set -e
+            test -f '$APP_ROOT/artisan'
+            test -d '$WEB_ROOT'
+            test -w '$APP_ROOT'
+            test -w '$WEB_ROOT'
+            echo PREFLIGHT_OK
+          "
+
+      # ---------------------------------------------------------------------
+      # Server-side recovery copies (before anything is changed)
+      # ---------------------------------------------------------------------
+      - name: Create rollback backups on server
+        run: |
+          set -euo pipefail
+          TS="$(date -u +%Y%m%dT%H%M%SZ)"
+          ssh hostinger "TS='$TS' APP='$APP_ROOT' WEB='$WEB_ROOT' bash -s" <<'REMOTE'
+          set -euo pipefail
+          mkdir -p "$HOME/backups"
+
+          PREV="$(awk 'NR==1 {print $1}' "$APP/DEPLOYED_SHA" 2>/dev/null || true)"
+          PREV="${PREV:-unknown}"
+
+          tar -czf "$HOME/backups/backend-${TS}-${PREV}.tar.gz" \
+            -C "$APP" \
+            --exclude='./vendor' \
+            --exclude='./storage' \
+            --exclude='./bootstrap/cache' \
+            --exclude='./.env' \
+            --exclude='./.env.*' \
+            .
+
+          FRONTEND_FILES=(index.html assets)
+          if [ -f "$WEB/.htaccess" ]; then FRONTEND_FILES+=(.htaccess); fi
+          tar -czf "$HOME/backups/frontend-${TS}.tar.gz" \
+            -C "$WEB" "${FRONTEND_FILES[@]}"
+
+          echo "Created:"
+          ls -1t "$HOME/backups"/backend-*.tar.gz | head -n 1
+          ls -1t "$HOME/backups"/frontend-*.tar.gz | head -n 1
+          REMOTE
+
+      # ---------------------------------------------------------------------
+      # Backend deployment (source only; runtime data is never touched)
+      # ---------------------------------------------------------------------
+      - name: Deploy Laravel source
+        run: |
+          set -euo pipefail
+
+          # Safety: never let a missing/empty variable turn the target into "/".
+          test -n "$APP_ROOT"
+          case "$APP_ROOT" in /home/*/sutantra-api/sutantra-api) ;; *)
+            echo "::error::Refusing to deploy to unexpected APP_ROOT: $APP_ROOT"; exit 1 ;;
+          esac
+
+          rsync -rlptz --delay-updates --itemize-changes -e ssh \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='vendor/' \
+            --exclude='node_modules/' \
+            --exclude='storage/' \
+            --exclude='bootstrap/cache/*.php' \
+            --exclude='database/*.sqlite' \
+            --exclude='public/hot' \
+            --exclude='public/storage' \
+            --exclude='public/build' \
+            --exclude='.phpunit.result.cache' \
+            --exclude='.phpunit.cache/' \
+            --exclude='*.log' \
+            --include='.env.example' \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            sutantra-api/ "hostinger:$APP_ROOT/"
+
+      - name: Install dependencies and rebuild caches (no migrations)
+        run: |
+          set -euo pipefail
+          ssh hostinger "APP='$APP_ROOT' SHA='${{ github.sha }}' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$APP"
+
+          composer install --no-dev --prefer-dist --optimize-autoloader \
+            --no-interaction --no-progress
+
+          php artisan config:clear
+          php artisan config:cache
+          php artisan route:clear
+          php artisan view:clear
+
+          printf '%s %s\n' "$SHA" "$(date -u +%FT%TZ)" > "$APP/DEPLOYED_SHA"
+          echo "Deployed revision: $SHA"
+          REMOTE
+
+      # ---------------------------------------------------------------------
+      # Frontend deployment (assets first, then atomic index.html swap)
+      # ---------------------------------------------------------------------
+      - name: Deploy frontend assets
+        run: |
+          set -euo pipefail
+          test -n "$WEB_ROOT"
+          case "$WEB_ROOT" in /home/*/domains/*/public_html) ;; *)
+            echo "::error::Refusing to deploy to unexpected WEB_ROOT: $WEB_ROOT"; exit 1 ;;
+          esac
+
+          rsync -rz --delete --itemize-changes --chmod=D755,F644 -e ssh \
+            sutantra-frontend/dist/assets/ "hostinger:$WEB_ROOT/assets/"
+
+          rsync -rz --itemize-changes --chmod=F644 -e ssh \
+            sutantra-frontend/dist/index.html "hostinger:$WEB_ROOT/index.html.new"
+
+          ssh hostinger "mv '$WEB_ROOT/index.html.new' '$WEB_ROOT/index.html'"
+
+      - name: Install SPA rewrite (optional, requires repo variable)
+        if: ${{ vars.ENABLE_SPA_FALLBACK == 'true' }}
+        run: |
+          set -euo pipefail
+          rsync -rz --itemize-changes --chmod=F644 -e ssh \
+            deploy/hostinger/public_html.htaccess "hostinger:$WEB_ROOT/.htaccess"
+
+      # ---------------------------------------------------------------------
+      # Post-deployment verification
+      # ---------------------------------------------------------------------
+      - name: Verify live frontend and API
+        run: |
+          set -euo pipefail
+
+          curl -fsS --retry 5 --retry-connrefused --retry-delay 3 --max-time 20 \
+            "$SITE_URL/" -o /tmp/site.html
+          echo "Frontend: HTTP 200"
+
+          ASSET="$(grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' sutantra-frontend/dist/index.html | head -n 1)"
+          test -n "$ASSET"
+          grep -q "$ASSET" /tmp/site.html
+          curl -fsS --retry 3 --retry-delay 2 --max-time 20 -o /dev/null "$SITE_URL/$ASSET"
+          echo "Frontend asset reachable: $ASSET"
+
+          curl -fsS --retry 5 --retry-connrefused --retry-delay 3 --max-time 20 \
+            "$API_BASE/api/test" -o /tmp/api-test.json
+          grep -q '"success":true' /tmp/api-test.json
+          echo "API health endpoint: OK"
+
+          curl -fsS --retry 3 --retry-delay 2 --max-time 20 -o /dev/null \
+            "$API_BASE/api/catalog/categories"
+          echo "API catalog endpoint: OK"
+
+          if [ "${{ vars.ENABLE_SPA_FALLBACK }}" = "true" ]; then
+            curl -fsS --retry 3 --retry-delay 2 --max-time 20 -o /dev/null "$SITE_URL/products"
+            echo "SPA deep link: OK"
+          fi

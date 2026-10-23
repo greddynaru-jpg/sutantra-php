@@ -15,8 +15,8 @@ use Illuminate\Support\Facades\Hash;
  *   configured email/phone (creating it if absent).
  * - Idempotent: once a SUPER_ADMIN exists nothing is modified, so a password
  *   rotated after the first run is preserved.
- * - The initial password is intentionally weak and must be rotated before
- *   production. No public SUPER_ADMIN registration route exists.
+ * - The initial password is supplied via SUPER_ADMIN_PASSWORD and must be
+ *   rotated before production. No public SUPER_ADMIN registration route exists.
  */
 class SuperAdminSeeder extends Seeder
 {
@@ -28,6 +28,12 @@ class SuperAdminSeeder extends Seeder
             $this->command?->warn('A SUPER_ADMIN already exists; left unchanged.');
 
             return;
+        }
+
+        if (blank($config['password'])) {
+            throw new \RuntimeException(
+                'SUPER_ADMIN_PASSWORD must be set to a strong value before seeding the first SUPER_ADMIN.'
+            );
         }
 
         $user = User::query()
