@@ -97,9 +97,18 @@ Verified ed25519 host key (public information):
 [147.93.101.77]:65002 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH1hkLrLI51q+b7tCYhzV0DJCuWUzaGVUGwqqAZc9Rsi
 ```
 
-The workflow fails closed: if the pinned key is absent or the fingerprint does
-not match, the deployment stops before connecting. `StrictHostKeyChecking` is
-never disabled.
+The workflow accepts the host-key line in any of these common paste formats and
+normalizes it to `[host]:port` for port `65002`:
+
+- `[147.93.101.77]:65002 ssh-ed25519 ...` (preferred)
+- `147.93.101.77 ssh-ed25519 ...`
+- `ssh-ed25519 ...` (bare public key)
+
+`SSH_HOST_FINGERPRINT` is required. The workflow fails closed if the pinned key
+is absent, the fingerprint is missing, or the fingerprint does not match;
+`StrictHostKeyChecking` is never disabled. Hashed `known_hosts` entries
+(`|1|...`) are not supported. `SSH_PRIVATE_KEY` must be an unencrypted
+OpenSSH/PEM key; the workflow validates it before connecting.
 
 To copy the private key to the clipboard without printing it (PowerShell):
 
