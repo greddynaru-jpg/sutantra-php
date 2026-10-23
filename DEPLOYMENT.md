@@ -286,7 +286,9 @@ Intentionally retained:
    Apache config.
 3. **Move or delete** the four `.env.backup-*` files in the production Laravel
    root.
-4. **Rotate the SUPER_ADMIN password** referenced by
-   `sutantra-api/.env.example` (it is a 6-digit value committed in a public
-   repository) and replace it with a placeholder.
+4. **Rotate the production SUPER_ADMIN password.** The committed 6-digit value
+   has been removed from `sutantra-api/.env.example` and the
+   `config/sutantra.php` fallback, and the seeder now refuses to create an
+   account with an empty password. The old value still exists in Git history,
+   so changing the live account password is the only real remediation.
 5. First live run of the new workflow.
