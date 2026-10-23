@@ -1,0 +1,6 @@
+# Keep deployment and shell files LF-only so they behave identically on Linux
+# runners and on Windows checkouts.
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+*.htaccess text eol=lf

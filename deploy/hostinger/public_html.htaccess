@@ -1,0 +1,28 @@
+# SPA fallback for the React build at the sutantrafoods.in document root.
+#
+# NOT deployed automatically. Enable it only after approval by setting the
+# repository variable ENABLE_SPA_FALLBACK=true (see DEPLOYMENT.md).
+#
+# Rules:
+#   * /sutantra-api/**  -> left untouched; that directory has its own Laravel
+#                          front controller + .htaccess.
+#   * /assets/**        -> served directly from the hashed Vite build.
+#   * existing files    -> served directly (index.html, default.php, ...).
+#   * everything else   -> React Router's client-side routes -> index.html.
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    RewriteCond %{REQUEST_URI} !^/sutantra-api(/|$)
+    RewriteCond %{REQUEST_URI} !^/assets(/|$)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.html [L]
+</IfModule>
+
+# Defence in depth: never serve environment or Git metadata if one is ever
+# misplaced inside the document root. .well-known is deliberately allowed.
+<FilesMatch "^\.(env|gitignore|gitattributes)">
+    Require all denied
+</FilesMatch>

@@ -1,0 +1,50 @@
+# ---------------------------------------------------------------------------
+# Repository-wide ignore rules (defence in depth).
+# The per-project .gitignore files in sutantra-api/ and sutantra-frontend/
+# still apply; this file stops accidental commits at the repository root.
+# ---------------------------------------------------------------------------
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.idea/
+.vscode/
+
+# Node dependencies and build output
+node_modules/
+**/node_modules/
+sutantra-frontend/dist/
+sutantra-frontend/.vite/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local environment files (never commit secrets)
+.env
+.env.local
+.env.*.local
+.env.backup*
+# Keep the committed templates ...
+!.env.example
+!**/.env.example
+# ... and the public frontend production config (contains only a public URL).
+!sutantra-frontend/.env.production
+
+# Laravel runtime / generated files
+sutantra-api/vendor/
+sutantra-api/bootstrap/cache/*.php
+sutantra-api/storage/*.log
+sutantra-api/storage/logs/*.log
+sutantra-api/database/*.sqlite
+sutantra-api/public/hot
+sutantra-api/public/storage
+sutantra-api/public/build
+sutantra-api/.phpunit.result.cache
+sutantra-api/.phpunit.cache/
+
+# Local deployment artefacts
+deploy/**/*.tar.gz
+deploy/**/*.tgz
