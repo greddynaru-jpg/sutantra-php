@@ -9,9 +9,10 @@ use Tests\TestCase;
 /**
  * Public, read-only offers endpoint used by the homepage marquee.
  *
- * Covers eligibility (active window + usage limit) and the deliberately
- * narrow, customer-facing payload. All fields here are pre-existing; this
- * endpoint adds no schema of its own.
+ * Covers eligibility (active, not expired, within the usage limit) and the
+ * deliberately narrow, customer-facing payload. Upcoming offers are shown
+ * before their start date. All fields here are pre-existing; this endpoint
+ * adds no schema of its own.
  */
 class PublicOfferCodeTest extends TestCase
 {
@@ -61,14 +62,20 @@ class PublicOfferCodeTest extends TestCase
             ->assertJsonCount(0, 'data');
     }
 
-    public function test_offers_outside_their_window_are_hidden(): void
+    public function test_expired_offers_are_hidden_but_upcoming_offers_are_shown(): void
     {
         $this->offer(['code' => 'EXPIRED', 'expires_at' => now()->subDay()->toDateString()]);
-        $this->offer(['code' => 'FUTURE', 'starts_at' => now()->addDay()->toDateString()]);
+        $this->offer([
+            'code' => 'FUTURE',
+            'description' => 'Coming soon',
+            'starts_at' => now()->addDay()->toDateString(),
+        ]);
 
         $this->getJson('/api/catalog/offers')
             ->assertOk()
-            ->assertJsonCount(0, 'data');
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.code', 'FUTURE')
+            ->assertJsonPath('data.0.description', 'Coming soon');
     }
 
     public function test_open_ended_and_current_offers_are_shown(): void

@@ -135,11 +135,13 @@ class CatalogController extends Controller
     }
 
     /**
-     * Currently redeemable offer codes for the public homepage.
+     * Offer codes for the public homepage.
      *
-     * Eligibility follows the stored rules: the offer must be active, inside
-     * its optional start/expiry window, and not exhausted by its usage limit.
-     * Only customer-facing fields are returned (see PublicOfferCodeResource).
+     * Eligibility follows the stored rules: the offer must be active, not
+     * past its expiry date, and not exhausted by its usage limit. An active
+     * offer with a future start date is included so the homepage can announce
+     * it before it becomes redeemable. Only customer-facing fields are
+     * returned (see PublicOfferCodeResource).
      */
     public function offers(): JsonResponse
     {
@@ -147,9 +149,6 @@ class CatalogController extends Controller
 
         $offers = OfferCode::query()
             ->where('is_active', true)
-            ->where(function ($query) use ($today): void {
-                $query->whereNull('starts_at')->orWhereDate('starts_at', '<=', $today);
-            })
             ->where(function ($query) use ($today): void {
                 $query->whereNull('expires_at')->orWhereDate('expires_at', '>=', $today);
             })
