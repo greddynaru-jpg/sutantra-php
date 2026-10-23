@@ -158,28 +158,101 @@ jobs:
           set -euo pipefail
           install -d -m 700 "$HOME/.ssh"
 
+          # Non-secret diagnostics: make a misconfigured secret obvious without
+          # ever printing the private key or credentials.
+          test -n "${SSH_HOST:-}" || { echo "::error::SSH_HOST is empty."; exit 1; }
+          test -n "${SSH_PORT:-}" || { echo "::error::SSH_PORT is empty."; exit 1; }
+          test -n "${SSH_USER:-}" || { echo "::error::SSH_USER is empty."; exit 1; }
+          test -n "${SSH_PRIVATE_KEY:-}" || { echo "::error::SSH_PRIVATE_KEY is empty."; exit 1; }
+          test -n "${SSH_KNOWN_HOSTS:-}" || { echo "::error::SSH_KNOWN_HOSTS is empty."; exit 1; }
+          echo "SSH_HOST=${SSH_HOST}"
+          echo "SSH_PORT=${SSH_PORT}"
+          echo "SSH_USER=set"
+          echo "SSH_PRIVATE_KEY_LENGTH=${#SSH_PRIVATE_KEY}"
+          echo "SSH_KNOWN_HOSTS_LENGTH=${#SSH_KNOWN_HOSTS}"
+          echo "SSH_HOST_FINGERPRINT_LENGTH=${#SSH_HOST_FINGERPRINT}"
+
           printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/deploy_key"
           chmod 600 "$HOME/.ssh/deploy_key"
 
-          printf '%s\n' "$SSH_KNOWN_HOSTS" | tr -d '\r' > "$HOME/.ssh/known_hosts"
-          chmod 600 "$HOME/.ssh/known_hosts"
-
-          if ! ssh-keygen -F "[${SSH_HOST}]:${SSH_PORT}" -f "$HOME/.ssh/known_hosts" > /dev/null; then
-            echo "::error::Pinned host key for [${SSH_HOST}]:${SSH_PORT} is missing from SSH_KNOWN_HOSTS."
+          if ! ssh-keygen -y -f "$HOME/.ssh/deploy_key" -P '' > /dev/null 2>&1; then
+            echo "::error::SSH_PRIVATE_KEY is not a valid unencrypted private key."
             exit 1
           fi
 
-          actual="$(ssh-keygen -lf "$HOME/.ssh/known_hosts" -F "[${SSH_HOST}]:${SSH_PORT}" \
-            | grep -oE 'SHA256:[A-Za-z0-9+/=]+' | head -n 1)"
-          if [ -z "$actual" ]; then
+          # OpenSSH stores port 22 as a bare host and every other port as
+          # [host]:port. Build the exact lookup key and normalize every pasted
+          # known_hosts line to match, while keeping the pinned fingerprint.
+          if [ "$SSH_PORT" = "22" ]; then
+            HOSTSPEC="$SSH_HOST"
+          else
+            HOSTSPEC="[${SSH_HOST}]:${SSH_PORT}"
+          fi
+
+          : > "$HOME/.ssh/known_hosts"
+          while IFS= read -r line; do
+            line="${line%$'\r'}"
+            case "$line" in
+              ''|'#'*) continue ;;
+            esac
+            first="$(printf '%s' "$line" | awk '{print $1}')"
+            case "$first" in
+              ssh-*|ecdsa-*|sk-*)
+                # Bare public key pasted without a hostname.
+                normalized="${HOSTSPEC} ${line}"
+                ;;
+              \|*)
+                echo "::error::Hashed known_hosts entries are not supported. Paste the plain '[host]:port keytype key' line."
+                exit 1
+                ;;
+              *)
+                # 'host keytype key' or '[host]:port keytype key': replace the
+                # host field with the port-correct spec. The fingerprint check
+                # below is what actually pins the key.
+                normalized="${HOSTSPEC} $(printf '%s' "$line" | sed 's/^[^[:space:]]*[[:space:]]*//')"
+                ;;
+            esac
+            printf '%s\n' "$normalized" >> "$HOME/.ssh/known_hosts"
+          done <<< "$SSH_KNOWN_HOSTS"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          if [ ! -s "$HOME/.ssh/known_hosts" ]; then
+            echo "::error::SSH_KNOWN_HOSTS contained no usable key line."
+            exit 1
+          fi
+          echo "Known-host entries normalized for ${HOSTSPEC}"
+
+          if ! ssh-keygen -F "$HOSTSPEC" -f "$HOME/.ssh/known_hosts" > /dev/null; then
+            echo "::error::Pinned host key for ${HOSTSPEC} is missing after normalization."
+            exit 1
+          fi
+
+          actual_list="$(ssh-keygen -lf "$HOME/.ssh/known_hosts" -F "$HOSTSPEC" \
+            | grep -oE 'SHA256:[A-Za-z0-9+/=]+' || true)"
+          if [ -z "$actual_list" ]; then
             echo "::error::Could not read a SHA256 fingerprint from SSH_KNOWN_HOSTS."
             exit 1
           fi
-          if [ -n "${SSH_HOST_FINGERPRINT:-}" ] && [ "$actual" != "$SSH_HOST_FINGERPRINT" ]; then
-            echo "::error::Host key fingerprint mismatch (expected $SSH_HOST_FINGERPRINT, got $actual)."
+
+          expected="$(printf '%s' "${SSH_HOST_FINGERPRINT:-}" | tr -d '[:space:]')"
+          expected="${expected#SHA256:}"
+          expected="${expected#sha256:}"
+          if [ -z "$expected" ]; then
+            echo "::error::SSH_HOST_FINGERPRINT is empty; refusing to deploy without a pinned fingerprint."
             exit 1
           fi
-          echo "Host key verified: $actual"
+
+          matched=0
+          while IFS= read -r actual; do
+            if [ "${actual#SHA256:}" = "$expected" ]; then
+              matched=1
+            fi
+          done <<< "$actual_list"
+          if [ "$matched" -ne 1 ]; then
+            echo "::error::Host key fingerprint mismatch (expected SHA256:${expected}, got: $(printf '%s' "$actual_list" | tr '\n' ' '))."
+            exit 1
+          fi
+          echo "Host key verified: SHA256:${expected}"
 
           cat > "$HOME/.ssh/config" <<EOF
           Host hostinger
