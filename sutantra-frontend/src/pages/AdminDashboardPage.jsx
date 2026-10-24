@@ -11,6 +11,8 @@ export default function AdminDashboardPage({ title = "Admin Dashboard" }) {
     { to: "/admin/products", title: "Products", note: "Create, edit and retire catalogue items." },
     { to: "/admin/categories", title: "Categories", note: "Add and organise product categories." },
     { to: "/admin/offers", title: "Offer Codes", note: "Create and manage discount offer codes." },
+    { to: "/admin/orders", title: "Order Management", note: "View and manage customer orders." },
+    { to: "/admin/order-statuses", title: "Order Status Management", note: "Configure order status definitions." },
     { to: "/admin/users", title: "Users", note: isSuper ? "Manage customers and administrators." : "Manage customer accounts." }
   ];
 

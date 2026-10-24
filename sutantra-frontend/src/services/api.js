@@ -216,6 +216,86 @@ export function createOrder(fields) {
   });
 }
 
+export function getOrders(params = {}) {
+  const query = new URLSearchParams();
+  if (params.page) query.set("page", params.page);
+  const qs = query.toString();
+  return request(`/api/orders${qs ? `?${qs}` : ""}`);
+}
+
+export function getOrder(id) {
+  return request(`/api/orders/${id}`);
+}
+
+// Admin Orders
+export function getAdminOrders(params = {}) {
+  const query = new URLSearchParams();
+  if (params.search) query.set("search", params.search);
+  if (params.status) query.set("status", params.status);
+  if (params.date) query.set("date", params.date);
+  if (params.page) query.set("page", params.page);
+  const qs = query.toString();
+  return request(`/api/admin/orders${qs ? `?${qs}` : ""}`);
+}
+
+export function getAdminOrder(id) {
+  return request(`/api/admin/orders/${id}`);
+}
+
+export function updateAdminOrderStatus(id, status) {
+  return request(`/api/admin/orders/${id}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status })
+  });
+}
+
+// Admin Order Statuses
+export function getAdminOrderStatuses() {
+  return request("/api/admin/order-statuses");
+}
+
+export function createAdminOrderStatus(fields) {
+  return request("/api/admin/order-statuses", {
+    method: "POST",
+    body: JSON.stringify(fields)
+  });
+}
+
+export function updateAdminOrderStatusDefinition(id, fields) {
+  return request(`/api/admin/order-statuses/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(fields)
+  });
+}
+
+export function deleteAdminOrderStatus(id) {
+  return request(`/api/admin/order-statuses/${id}`, { method: "DELETE" });
+}
+
+// ── User addresses ────────────────────────────────────────────────
+
+export function getAddresses() {
+  return request("/api/addresses").then((payload) => payload?.data ?? payload ?? []);
+}
+
+export function createAddress(fields) {
+  return request("/api/addresses", {
+    method: "POST",
+    body: JSON.stringify(fields)
+  }).then((payload) => payload?.data ?? payload);
+}
+
+export function updateAddress(id, fields) {
+  return request(`/api/addresses/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(fields)
+  }).then((payload) => payload?.data ?? payload);
+}
+
+export function deleteAddress(id) {
+  return request(`/api/addresses/${id}`, { method: "DELETE" });
+}
+
 // ── Admin: catalogue management (ADMIN + SUPER_ADMIN) ─────────────
 //
 // Writes are sent as multipart/form-data so image files can travel alongside

@@ -6,6 +6,8 @@ use App\Http\Controllers\Api\Admin\HomePagePolicyController;
 use App\Http\Controllers\Api\Admin\HomePageTeamMemberController;
 use App\Http\Controllers\Api\Admin\HomePageVisionController;
 use App\Http\Controllers\Api\Admin\OfferCodeController;
+use App\Http\Controllers\Api\Admin\OrderController as AdminOrderController;
+use App\Http\Controllers\Api\Admin\OrderStatusController as AdminOrderStatusController;
 use App\Http\Controllers\Api\Admin\ProductCategoryController;
 use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
 use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
@@ -13,6 +15,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\CatalogController;
 use App\Http\Controllers\Api\CheckoutController;
+use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\MediaController;
 use App\Http\Resources\UserResource;
 use Illuminate\Http\Request;
@@ -85,6 +88,12 @@ Route::middleware('auth:sanctum')->prefix('cart')->group(function () {
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/checkout/quote', [CheckoutController::class, 'quote']);
     Route::post('/orders', [CheckoutController::class, 'store']);
+    Route::get('/orders', [OrderController::class, 'index']);
+    Route::get('/orders/{order}', [OrderController::class, 'show']);
+    Route::get('/addresses', [App\Http\Controllers\Api\UserAddressController::class, 'index']);
+    Route::post('/addresses', [App\Http\Controllers\Api\UserAddressController::class, 'store']);
+    Route::put('/addresses/{userAddress}', [App\Http\Controllers\Api\UserAddressController::class, 'update']);
+    Route::delete('/addresses/{userAddress}', [App\Http\Controllers\Api\UserAddressController::class, 'destroy']);
 });
 
 // ── Admin: catalogue management (authenticated, ADMIN + SUPER_ADMIN) ──

@@ -5,6 +5,9 @@ import AdminCategoriesPage from "./pages/AdminCategoriesPage";
 import AdminDashboardPage from "./pages/AdminDashboardPage";
 import AdminHomePage from "./pages/AdminHomePage";
 import AdminOffersPage from "./pages/AdminOffersPage";
+import AdminOrderDetailPage from "./pages/AdminOrderDetailPage";
+import AdminOrdersPage from "./pages/AdminOrdersPage";
+import AdminOrderStatusPage from "./pages/AdminOrderStatusPage";
 import AdminPoliciesPage from "./pages/AdminPoliciesPage";
 import AdminProductsPage from "./pages/AdminProductsPage";
 import AdminUsersPage from "./pages/AdminUsersPage";
@@ -13,6 +16,8 @@ import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
+import MyOrdersPage from "./pages/MyOrdersPage";
+import OrderDetailPage from "./pages/OrderDetailPage";
 import PolicyDetailPage from "./pages/PolicyDetailPage";
 import ProfilePage from "./pages/ProfilePage";
 import ProductsPage from "./pages/ProductsPage";
@@ -42,6 +47,8 @@ export default function App() {
       {/* Product listing is PUBLIC (browse without login); cart/checkout need auth. */}
       <Route path="/products" element={<ProductsPage />} />
       <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
+      <Route path="/orders" element={<RequireAuth><MyOrdersPage /></RequireAuth>} />
+      <Route path="/orders/:id" element={<RequireAuth><OrderDetailPage /></RequireAuth>} />
       <Route path="/cart" element={<RequireAuth><CartPage /></RequireAuth>} />
       <Route
         path="/checkout"
@@ -68,6 +75,18 @@ export default function App() {
       <Route
         path="/admin/offers"
         element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminOffersPage /></RequireAuth>}
+      />
+      <Route
+        path="/admin/orders"
+        element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminOrdersPage /></RequireAuth>}
+      />
+      <Route
+        path="/admin/orders/:id"
+        element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminOrderDetailPage /></RequireAuth>}
+      />
+      <Route
+        path="/admin/order-statuses"
+        element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminOrderStatusPage /></RequireAuth>}
       />
       {/* Banners, vision and policies are SUPER_ADMIN-only; they are managed
           from Home Page Administration. Enforcement happens on the API too. */}

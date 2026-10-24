@@ -3,7 +3,15 @@ import { Link, useNavigate } from "react-router-dom";
 import Brand from "../components/Brand";
 import { useAuth } from "../contexts/AuthContext";
 import { useCart } from "../contexts/CartContext";
-import { createOrder, getCart, getCheckoutQuote } from "../services/api";
+import {
+  createAddress,
+  createOrder,
+  deleteAddress,
+  getAddresses,
+  getCart,
+  getCheckoutQuote,
+  updateAddress
+} from "../services/api";
 
 function fmt(value) {
   return `₹${Number(value || 0).toFixed(2)}`;
@@ -22,6 +30,22 @@ export default function CheckoutPage() {
   const [cart, setCart] = useState(null);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
+  const [addresses, setAddresses] = useState([]);
+  const [addressesLoading, setAddressesLoading] = useState(true);
+  const [selectedAddressId, setSelectedAddressId] = useState(null);
+  const [showAddressForm, setShowAddressForm] = useState(false);
+  const [editingAddressId, setEditingAddressId] = useState(null);
+  const [addressForm, setAddressForm] = useState({
+    name: "",
+    phone: "",
+    address: "",
+    city: "",
+    state: "",
+    pincode: "",
+    is_default: false
+  });
+  const [addressBusy, setAddressBusy] = useState(false);
+  const [addressError, setAddressError] = useState("");
   const [form, setForm] = useState({
     name: "",
     phone: "",
@@ -37,10 +61,7 @@ export default function CheckoutPage() {
   const [order, setOrder] = useState(null);
   const [orderError, setOrderError] = useState("");
 
-  // Monotonic token so a slow response for an old PIN can never mark the
-  // current PIN as serviceable.
   const quoteSeq = useRef(0);
-  // Blocks a second submit fired before React re-renders the disabled button.
   const submittingRef = useRef(false);
 
   useEffect(() => {
@@ -61,24 +82,67 @@ export default function CheckoutPage() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    setAddressesLoading(true);
+    getAddresses()
+      .then((data) => {
+        if (!active) return;
+        const list = Array.isArray(data) ? data : [];
+        setAddresses(list);
+        if (list.length > 0) {
+          const def = list.find((a) => a.is_default) || list[0];
+          if (def?.id) {
+            setSelectedAddressId(def.id);
+            setForm({
+              name: def.name || "",
+              phone: def.phone || "",
+              address: def.address || "",
+              city: def.city || "",
+              state: def.state || "",
+              pincode: def.pincode || ""
+            });
+          }
+        } else {
+          setForm((current) => ({
+            ...current,
+            name: current.name || user?.name || "",
+            phone: current.phone || user?.phone || ""
+          }));
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setAddresses([]);
+          setForm((current) => ({
+            ...current,
+            name: current.name || user?.name || "",
+            phone: current.phone || user?.phone || ""
+          }));
+        }
+      })
+      .finally(() => {
+        if (active) setAddressesLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (addresses.length > 0) return;
     setForm((current) => ({
       ...current,
       name: current.name || user?.name || "",
       phone: current.phone || user?.phone || ""
     }));
-  }, [user]);
+  }, [user, addresses.length]);
 
   const cartItems = cart?.items ?? [];
   const cartHasItems = cartItems.length > 0;
 
-  // Every PIN change invalidates the previous result immediately, then the
-  // new PIN is checked against the backend after a short debounce.
   useEffect(() => {
     if (order) return undefined;
 
-    // Any PIN edit invalidates an in-flight check, even when the new value is
-    // empty or malformed (otherwise a late response for the old PIN could
-    // overwrite the current state).
     const seq = ++quoteSeq.current;
 
     const pincode = form.pincode.trim();
@@ -104,7 +168,7 @@ export default function CheckoutPage() {
     const timer = setTimeout(async () => {
       try {
         const result = await getCheckoutQuote(pincode);
-        if (seq !== quoteSeq.current) return; // stale response
+        if (seq !== quoteSeq.current) return;
         if (!result?.serviceable) {
           setQuote(null);
           setPinState("unserviceable");
@@ -151,12 +215,169 @@ export default function CheckoutPage() {
     PHONE_PATTERN.test(form.phone.trim()) &&
     PIN_PATTERN.test(form.pincode.trim());
 
-  const canPlace = !submitting && formComplete && serviceable;
+  const hasSelectedAddress = selectedAddressId !== null && addresses.some((a) => a.id === selectedAddressId);
+  const canPlace = !submitting && formComplete && serviceable && hasSelectedAddress;
 
   function update(event) {
     const { name, value } = event.target;
     setForm((current) => ({ ...current, [name]: value }));
     setOrderError("");
+  }
+
+  function applyAddress(addr) {
+    if (!addr) return;
+    setSelectedAddressId(addr.id);
+    setForm({
+      name: addr.name || "",
+      phone: addr.phone || "",
+      address: addr.address || "",
+      city: addr.city || "",
+      state: addr.state || "",
+      pincode: addr.pincode || ""
+    });
+    setOrderError("");
+  }
+
+  function openAddAddress() {
+    setEditingAddressId(null);
+    setAddressForm({
+      name: user?.name || form.name || "",
+      phone: user?.phone || form.phone || "",
+      address: "",
+      city: "",
+      state: "",
+      pincode: "",
+      is_default: addresses.length === 0
+    });
+    setAddressError("");
+    setShowAddressForm(true);
+  }
+
+  function openEditAddress(addr) {
+    setEditingAddressId(addr.id);
+    setAddressForm({
+      name: addr.name || "",
+      phone: addr.phone || "",
+      address: addr.address || "",
+      city: addr.city || "",
+      state: addr.state || "",
+      pincode: addr.pincode || "",
+      is_default: !!addr.is_default
+    });
+    setAddressError("");
+    setShowAddressForm(true);
+  }
+
+  function updateAddressForm(event) {
+    const { name, value, type, checked } = event.target;
+    setAddressForm((current) => ({ ...current, [name]: type === "checkbox" ? checked : value }));
+    setAddressError("");
+  }
+
+  async function saveAddress(event) {
+    event.preventDefault();
+    setAddressError("");
+    if (addressBusy) return;
+
+    if (!REQUIRED_FIELDS.every((field) => (addressForm[field] || "").trim())) {
+      setAddressError("Please fill in all required address fields.");
+      return;
+    }
+    if (!PHONE_PATTERN.test((addressForm.phone || "").trim())) {
+      setAddressError("Enter a valid phone number.");
+      return;
+    }
+    if (!PIN_PATTERN.test((addressForm.pincode || "").trim())) {
+      setAddressError("Enter a valid 6-digit PIN code.");
+      return;
+    }
+
+    setAddressBusy(true);
+    try {
+      if (editingAddressId) {
+        const updated = await updateAddress(editingAddressId, {
+          name: addressForm.name.trim(),
+          phone: addressForm.phone.trim(),
+          address: addressForm.address.trim(),
+          city: addressForm.city.trim(),
+          state: addressForm.state.trim(),
+          pincode: addressForm.pincode.trim(),
+          is_default: !!addressForm.is_default
+        });
+        let next = addresses.map((a) => (a.id === updated.id ? updated : a));
+        if (updated.is_default) {
+          next = next.map((a) => (a.id === updated.id ? a : { ...a, is_default: false }));
+        }
+        setAddresses(next);
+        if (selectedAddressId === updated.id || updated.is_default) {
+          applyAddress(updated);
+        }
+      } else {
+        if (addresses.length >= 3) {
+          setAddressError("You can save a maximum of 3 addresses. Please edit or delete an existing address to add another.");
+          setAddressBusy(false);
+          return;
+        }
+        const created = await createAddress({
+          name: addressForm.name.trim(),
+          phone: addressForm.phone.trim(),
+          address: addressForm.address.trim(),
+          city: addressForm.city.trim(),
+          state: addressForm.state.trim(),
+          pincode: addressForm.pincode.trim(),
+          is_default: !!addressForm.is_default || addresses.length === 0
+        });
+        let next = [...addresses, created];
+        if (created.is_default) {
+          next = next.map((a) => (a.id === created.id ? created : { ...a, is_default: false }));
+        }
+        setAddresses(next);
+        applyAddress(created);
+      }
+      setShowAddressForm(false);
+      setEditingAddressId(null);
+    } catch (error) {
+      const message =
+        error?.payload?.errors?.address?.[0] ||
+        error?.payload?.errors?.pincode?.[0] ||
+        error?.payload?.errors?.phone?.[0] ||
+        error.message ||
+        "Could not save address.";
+      setAddressError(message);
+    } finally {
+      setAddressBusy(false);
+    }
+  }
+
+  async function removeAddress(addr) {
+    if (!addr?.id) return;
+    const confirmed = window.confirm("Delete this saved address?");
+    if (!confirmed) return;
+    setAddressBusy(true);
+    setAddressError("");
+    try {
+      await deleteAddress(addr.id);
+      const next = addresses.filter((a) => a.id !== addr.id);
+      setAddresses(next);
+      if (selectedAddressId === addr.id) {
+        setSelectedAddressId(null);
+        setForm({
+          name: user?.name || "",
+          phone: user?.phone || "",
+          address: "",
+          city: "",
+          state: "",
+          pincode: ""
+        });
+        setQuote(null);
+        setPinState("idle");
+        setPinMessage("");
+      }
+    } catch (error) {
+      setAddressError(error.message || "Could not delete address.");
+    } finally {
+      setAddressBusy(false);
+    }
   }
 
   async function handleSubmit(event) {
@@ -334,99 +555,159 @@ export default function CheckoutPage() {
           <span className="eyebrow">Secure checkout</span>
           <h1>Delivery details</h1>
           <p className="checkout-intro">
-            We’ll use these details for this order. Your account email stays on file.
+            Select a saved address or add a new one for this order.
           </p>
 
           {orderError && <div className="form-alert error" role="alert">{orderError}</div>}
 
-          <div className="checkout-grid">
-            <label className="checkout-field span-2">
-              Recipient name
-              <input
-                name="name"
-                type="text"
-                autoComplete="name"
-                maxLength="150"
-                value={form.name}
-                onChange={update}
-              />
-            </label>
+                    <section className="saved-addresses modern-address-section">
+            <div className="saved-addresses-header">
+              <h2>Delivery Address</h2>
+            </div>
+            {addresses.length >= 3 && <p className="address-limit-note">You can save a maximum of 3 addresses. Please edit or delete an existing address to add another.</p>}
+            {addressError && !showAddressForm && <div className="form-alert error" role="alert">{addressError}</div>}
+            {addressesLoading ? <p className="address-empty">Loading addresses...</p> : (
+              <div className="modern-address-list">
+                {addresses.map((addr) => (
+                  <div key={addr.id} className={`modern-address-card ${selectedAddressId === addr.id ? "selected" : ""}`} role="button" tabIndex={0} onClick={() => applyAddress(addr)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); applyAddress(addr); } }} aria-pressed={selectedAddressId === addr.id}>
+                    <div className="address-card-header">
+                      <input type="radio" name="savedAddress" checked={selectedAddressId === addr.id} onChange={() => applyAddress(addr)} onClick={(e) => e.stopPropagation()} aria-label="Deliver to this address" />
+                      <div className="address-card-title">
+                        <div className="address-card-name-row">
+                          <strong>{addr.name}</strong>
+                          {addr.is_default && <span className="address-badge">Default</span>}
+                        </div>
+                        <span className="address-card-phone">{addr.phone}</span>
+                      </div>
+                    </div>
+                    <p className="address-card-body">{addr.address}{addr.city ? `, ${addr.city}` : ""}{addr.state ? `, ${addr.state}` : ""}{addr.pincode ? ` - ${addr.pincode}` : ""}</p>
+                    <div className="address-card-actions">
+                      <button className="button-link" type="button" onClick={(e) => { e.stopPropagation(); openEditAddress(addr); }} disabled={addressBusy} title="Edit address">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                          <path d="M11.3333 2.00004C11.5084 1.82494 11.7163 1.68605 11.9447 1.59129C12.1731 1.49653 12.4173 1.44775 12.664 1.44775C12.9107 1.44775 13.1549 1.49653 13.3833 1.59129C13.6117 1.68605 13.8196 1.82494 13.9947 2.00004C14.1698 2.17513 14.3087 2.383 14.4034 2.6114C14.4982 2.83981 14.547 3.084 14.547 3.33071C14.547 3.57742 14.4982 3.82161 14.4034 4.05002C14.3087 4.27842 14.1698 4.48629 13.9947 4.66138L5.00001 13.656L1.33334 14.6667L2.34401 11L11.3333 2.00004Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        Edit
+                      </button>
+                      <button className="button-link danger" type="button" onClick={(e) => { e.stopPropagation(); removeAddress(addr); }} disabled={addressBusy} title="Delete address">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                          <path d="M2 4H3.33333H14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                          <path d="M5.33334 4.00004V2.66671C5.33334 2.31309 5.47382 1.97395 5.72387 1.7239C5.97392 1.47385 6.31305 1.33337 6.66668 1.33337H9.33334C9.68697 1.33337 10.0261 1.47385 10.2762 1.7239C10.5262 1.97395 10.6667 2.31309 10.6667 2.66671V4.00004M12.6667 4.00004V13.3334C12.6667 13.687 12.5262 14.0261 12.2762 14.2762C12.0261 14.5262 11.687 14.6667 11.3333 14.6667H4.66668C4.31305 14.6667 3.97392 14.5262 3.72387 14.2762C3.47382 14.0261 3.33334 13.687 3.33334 13.3334V4.00004H12.6667Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        Delete
+                      </button>
+                    </div>
+                    {selectedAddressId === addr.id && <span className="address-selected-label">Selected</span>}
+                  </div>
+                ))}
+                <div className="add-address-card" role="button" tabIndex={0} onClick={openAddAddress} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openAddAddress(); } }} aria-label="Add new address" title="Add new address">
+                  <div className="add-address-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M12 5V19M5 12H19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </div>
+                  <div className="add-address-text">Add New Address</div>
+                </div>
+              </div>
+            )}
+            {!hasSelectedAddress && addresses.length > 0 && <p className="address-selection-note">Please select a delivery address.</p>}
+          </section>
 
-            <label className="checkout-field">
-              Phone number
-              <input
-                name="phone"
-                type="tel"
-                autoComplete="tel"
-                inputMode="tel"
-                maxLength="20"
-                placeholder="10-digit mobile number"
-                value={form.phone}
-                onChange={update}
-              />
-            </label>
-
-            <label className="checkout-field">
-              PIN code
-              <input
-                name="pincode"
-                type="text"
-                autoComplete="postal-code"
-                inputMode="numeric"
-                maxLength="6"
-                placeholder="6-digit PIN code"
-                value={form.pincode}
-                onChange={update}
-                aria-invalid={pinState === "unserviceable" || pinState === "invalid"}
-              />
-            </label>
-
-            <label className="checkout-field span-2">
-              Delivery address
-              <textarea
-                name="address"
-                rows="3"
-                maxLength="500"
-                autoComplete="street-address"
-                placeholder="House / flat, street, area"
-                value={form.address}
-                onChange={update}
-              />
-            </label>
-
-            <label className="checkout-field">
-              City / Town
-              <input
-                name="city"
-                type="text"
-                autoComplete="address-level2"
-                maxLength="100"
-                value={form.city}
-                onChange={update}
-              />
-            </label>
-
-            <label className="checkout-field">
-              State
-              <input
-                name="state"
-                type="text"
-                autoComplete="address-level1"
-                maxLength="100"
-                value={form.state}
-                onChange={update}
-              />
-            </label>
-          </div>
-
-          <p className={`pincode-status ${pinState}`} role="status">
-            {pinMessage || "Enter your PIN code to check delivery availability."}
-          </p>
-
-          <p className="checkout-secure-note">
-            No payment is collected in this phase. Your order will be created with
-            payment status PENDING.
-          </p>
+          {showAddressForm && (
+            <section className="address-form-section">
+              <h2>{editingAddressId ? "Edit address" : "Add new address"}</h2>
+              {addressError && <div className="form-alert error" role="alert">{addressError}</div>}
+              <div className="checkout-grid">
+                <label className="checkout-field span-2">
+                  Recipient name
+                  <input
+                    name="name"
+                    type="text"
+                    autoComplete="name"
+                    maxLength="150"
+                    value={addressForm.name}
+                    onChange={updateAddressForm}
+                  />
+                </label>
+                <label className="checkout-field">
+                  Phone number
+                  <input
+                    name="phone"
+                    type="tel"
+                    autoComplete="tel"
+                    inputMode="tel"
+                    maxLength="20"
+                    placeholder="10-digit mobile number"
+                    value={addressForm.phone}
+                    onChange={updateAddressForm}
+                  />
+                </label>
+                <label className="checkout-field">
+                  PIN code
+                  <input
+                    name="pincode"
+                    type="text"
+                    autoComplete="postal-code"
+                    inputMode="numeric"
+                    maxLength="6"
+                    placeholder="6-digit PIN code"
+                    value={addressForm.pincode}
+                    onChange={updateAddressForm}
+                  />
+                </label>
+                <label className="checkout-field span-2">
+                  Delivery address
+                  <textarea
+                    name="address"
+                    rows="3"
+                    maxLength="500"
+                    autoComplete="street-address"
+                    placeholder="House / flat, street, area"
+                    value={addressForm.address}
+                    onChange={updateAddressForm}
+                  />
+                </label>
+                <label className="checkout-field">
+                  City / Town
+                  <input
+                    name="city"
+                    type="text"
+                    autoComplete="address-level2"
+                    maxLength="100"
+                    value={addressForm.city}
+                    onChange={updateAddressForm}
+                  />
+                </label>
+                <label className="checkout-field">
+                  State
+                  <input
+                    name="state"
+                    type="text"
+                    autoComplete="address-level1"
+                    maxLength="100"
+                    value={addressForm.state}
+                    onChange={updateAddressForm}
+                  />
+                </label>
+              </div>
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  name="is_default"
+                  checked={!!addressForm.is_default}
+                  onChange={updateAddressForm}
+                />
+                Set as default
+              </label>
+              <div className="address-form-actions">
+                <button className="button button-primary" type="button" onClick={saveAddress} disabled={addressBusy}>
+                  {addressBusy ? "Saving…" : "Save Address"}
+                </button>
+                <button className="button button-light" type="button" onClick={() => { setShowAddressForm(false); setEditingAddressId(null); setAddressError(""); }} disabled={addressBusy}>
+                  Cancel
+                </button>
+              </div>
+            </section>
+          )}
         </form>
 
         <aside className="order-summary" aria-label="Checkout order summary">
@@ -466,6 +747,10 @@ export default function CheckoutPage() {
               Delivery charge and the final total are calculated after we confirm
               your PIN code.
             </p>
+          )}
+
+          {!hasSelectedAddress && (
+            <p className="address-selection-note">Select a delivery address to place your order.</p>
           )}
 
           <button className="checkout-btn" type="submit" form="checkout-form" disabled={!canPlace}>
