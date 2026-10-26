@@ -43,6 +43,25 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    # This MySQL instance exists only inside the ephemeral GitHub Actions
+    # runner. It is created from scratch for each job and discarded afterwards.
+    # Never add Hostinger or production database credentials here.
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci_root_password
+          MYSQL_DATABASE: db_sutantra_laravel_test
+          MYSQL_USER: sutantra_ci
+          MYSQL_PASSWORD: ci_test_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -pci_root_password"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -90,7 +109,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ env.PHP_VERSION }}
-          extensions: mbstring, pdo_sqlite, sqlite3, bcmath, gd, intl
+          extensions: mbstring, pdo_mysql, pdo_sqlite, sqlite3, bcmath, gd, intl
           coverage: none
           tools: composer:v2
 
@@ -108,13 +127,122 @@ jobs:
           set -euo pipefail
           cp .env.example .env
           php artisan key:generate --force
+          php artisan config:clear
+
+      - name: Verify isolated CI test database
+        working-directory: sutantra-api
+        env:
+          APP_ENV: testing
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: "3306"
+          DB_DATABASE: db_sutantra_laravel_test
+          DB_USERNAME: sutantra_ci
+          DB_PASSWORD: ci_test_password
+          DB_URL: ""
+        run: |
+          set -euo pipefail
+
+          php -r 'exit(extension_loaded("pdo_mysql") ? 0 : 1);' || {
+            echo "::error::pdo_mysql is required to run the CI test database."
+            exit 1
+          }
+
+          test "$DB_CONNECTION" = "mysql"
+          test "$DB_HOST" = "127.0.0.1"
+          test "$DB_PORT" = "3306"
+          test "$DB_DATABASE" = "db_sutantra_laravel_test"
+          test "$DB_USERNAME" = "sutantra_ci"
+          test -n "$DB_PASSWORD"
+          test -z "${DB_URL:-}"
+
+          grep -q 'name="DB_CONNECTION" value="mysql" force="true"' phpunit.xml || {
+            echo "::error::phpunit.xml must force the MySQL test connection."
+            exit 1
+          }
+          grep -q 'name="DB_HOST" value="127.0.0.1" force="true"' phpunit.xml || {
+            echo "::error::phpunit.xml must force tests to localhost."
+            exit 1
+          }
+          grep -q 'name="DB_DATABASE" value="db_sutantra_laravel_test" force="true"' phpunit.xml || {
+            echo "::error::phpunit.xml must force the isolated test database."
+            exit 1
+          }
+
+          if grep -n 'u368424636_db_sutanatra26' phpunit.xml .env .env.example 2>/dev/null; then
+            echo "::error::Production database identifier found in test configuration."
+            exit 1
+          fi
+
+      - name: Wait for isolated CI MySQL
+        working-directory: sutantra-api
+        env:
+          APP_ENV: testing
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: "3306"
+          DB_DATABASE: db_sutantra_laravel_test
+          DB_USERNAME: sutantra_ci
+          DB_PASSWORD: ci_test_password
+          DB_URL: ""
+        run: |
+          set -euo pipefail
+          php -r '
+            $dsn = sprintf(
+                "mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4",
+                getenv("DB_HOST"),
+                getenv("DB_PORT"),
+                getenv("DB_DATABASE")
+            );
+            $deadline = time() + 120;
+
+            while (time() < $deadline) {
+                try {
+                    $pdo = new PDO($dsn, getenv("DB_USERNAME"), getenv("DB_PASSWORD"), [
+                        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                        PDO::ATTR_TIMEOUT => 3,
+                    ]);
+                    $database = $pdo->query("SELECT DATABASE()")->fetchColumn();
+                    if ($database !== getenv("DB_DATABASE")) {
+                        fwrite(STDERR, "Unexpected CI database: {$database}\n");
+                        exit(1);
+                    }
+                    echo "Connected to isolated CI database: {$database}\n";
+                    exit(0);
+                } catch (Throwable $error) {
+                    fwrite(STDERR, "Waiting for CI MySQL...\n");
+                    sleep(2);
+                }
+            }
+
+            fwrite(STDERR, "CI MySQL did not become ready within 120 seconds.\n");
+            exit(1);
+          '
 
       - name: Run backend tests
         working-directory: sutantra-api
+        env:
+          APP_ENV: testing
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: "3306"
+          DB_DATABASE: db_sutantra_laravel_test
+          DB_USERNAME: sutantra_ci
+          DB_PASSWORD: ci_test_password
+          DB_URL: ""
         run: php artisan test
 
       - name: Boot check (route registration)
         working-directory: sutantra-api
+        env:
+          APP_ENV: testing
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: "3306"
+          DB_DATABASE: db_sutantra_laravel_test
+          DB_USERNAME: sutantra_ci
+          DB_PASSWORD: ci_test_password
+          DB_URL: ""
         run: php artisan route:list --except-vendor > /dev/null
 
   deploy:
