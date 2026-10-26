@@ -17,7 +17,7 @@ import Brand from "./Brand";
  * routes are guarded in App.jsx and every restricted endpoint is enforced
  * server-side too.
  */
-export default function AdminLayout({ title, subtitle, actions, titleClassName = "", children }) {
+export default function AdminLayout({ title, subtitle, actions, titleClassName = "", topNav = null, hideBackToDashboard = false, children }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -25,7 +25,7 @@ export default function AdminLayout({ title, subtitle, actions, titleClassName =
   const isSuper = user?.role === "SUPER_ADMIN";
   // The signed-in role's own dashboard: ADMIN → /admin, SUPER_ADMIN → /super-admin.
   const dashboardPath = user ? roleHome(user.role) : "/admin";
-  const showBackToDashboard = location.pathname !== dashboardPath;
+  const showBackToDashboard = !hideBackToDashboard && location.pathname !== dashboardPath;
 
   async function signOut() {
     await logout();
@@ -47,6 +47,7 @@ export default function AdminLayout({ title, subtitle, actions, titleClassName =
       </header>
 
       <section className="admin-content content-width">
+        {topNav && <div className="admin-top-nav">{topNav}</div>}
         <div className="admin-page-head">
           <div>
             {showBackToDashboard && (

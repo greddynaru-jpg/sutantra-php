@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import AdminLayout from "../components/AdminLayout";
+import { roleHome, useAuth } from "../contexts/AuthContext";
 import { createAdminOrderStatus, deleteAdminOrderStatus, getAdminOrderStatuses, updateAdminOrderStatusDefinition } from "../services/api";
 
 function StatusBadge({ active, protected: isProtected }) {
@@ -14,6 +15,8 @@ function StatusBadge({ active, protected: isProtected }) {
 }
 
 export default function AdminOrderStatusPage() {
+  const { user } = useAuth();
+  const dashboardPath = user ? roleHome(user.role) : "/admin";
   const [statuses, setStatuses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -116,6 +119,23 @@ export default function AdminOrderStatusPage() {
     <AdminLayout
       title="Order Status Management"
       subtitle="Configure the order statuses used across your order workflow."
+      hideBackToDashboard
+      topNav={
+        <nav className="admin-page-nav" aria-label="Page navigation">
+          <Link className="button button-light admin-page-nav-link" to="/">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M1.66669 7.5L8.00002 1.66667L14.3334 7.5V13.3333C14.3334 13.687 14.1929 14.0261 13.9428 14.2762C13.6928 14.5262 13.3536 14.6667 13 14.6667H3.00002C2.6464 14.6667 2.30726 14.5262 2.05721 14.2762C1.80716 14.0261 1.66669 13.687 1.66669 13.3333V7.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Back to Home Page
+          </Link>
+          <Link className="button button-light admin-page-nav-link" to={dashboardPath}>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M12.6667 8H3.33334M8.00001 3.33333L3.33334 8L8.00001 12.6667" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Back to Admin Management Page
+          </Link>
+        </nav>
+      }
       actions={
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
           <button className="button button-primary" type="button" onClick={openAdd}>
@@ -124,7 +144,6 @@ export default function AdminOrderStatusPage() {
             </svg>
             Add New Status
           </button>
-          <Link className="button button-light" to="/admin">Back to Dashboard</Link>
         </div>
       }
     >

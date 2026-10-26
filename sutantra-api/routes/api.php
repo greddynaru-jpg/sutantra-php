@@ -119,6 +119,19 @@ Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
         Route::patch('/offers/{offer}/activate', [OfferCodeController::class, 'activate']);
         Route::patch('/offers/{offer}/deactivate', [OfferCodeController::class, 'deactivate']);
 
+        // Order status definitions used by the order workflow.
+        Route::get('/order-statuses', [AdminOrderStatusController::class, 'index']);
+        Route::post('/order-statuses', [AdminOrderStatusController::class, 'store']);
+        Route::match(['put', 'patch'], '/order-statuses/{orderStatus}', [AdminOrderStatusController::class, 'update']);
+        Route::delete('/order-statuses/{orderStatus}', [AdminOrderStatusController::class, 'destroy']);
+
+        // Order management: the analytics route must precede /orders/{order}
+        // so "analytics" is never treated as an order id.
+        Route::get('/orders/analytics', [AdminOrderController::class, 'analytics']);
+        Route::get('/orders', [AdminOrderController::class, 'index']);
+        Route::get('/orders/{order}', [AdminOrderController::class, 'show']);
+        Route::patch('/orders/{order}/status', [AdminOrderController::class, 'updateStatus']);
+
         // User management is reachable by both administrators, but the
         // controller enforces the finer rules: an ADMIN may only manage
         // customer (USER) accounts and may never change passwords or grant

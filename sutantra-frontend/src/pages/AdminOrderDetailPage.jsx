@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import AdminLayout from "../components/AdminLayout";
-import { getAdminOrder, updateAdminOrderStatus } from "../services/api";
+import { getAdminOrder, getAdminOrderStatuses, updateAdminOrderStatus } from "../services/api";
 
 function fmt(value) {
   return `₹${Number(value || 0).toFixed(2)}`;
@@ -23,24 +23,6 @@ function formatDate(value) {
   }
 }
 
-const TRANSITIONS = {
-  CREATED: ["CONFIRMED", "CANCELLED"],
-  CONFIRMED: ["PROCESSING", "SHIPPED", "CANCELLED"],
-  PROCESSING: ["SHIPPED", "CANCELLED"],
-  SHIPPED: ["DELIVERED", "CANCELLED"],
-  DELIVERED: [],
-  CANCELLED: []
-};
-
-const LABELS = {
-  CREATED: "Pending Approval",
-  CONFIRMED: "Approved",
-  PROCESSING: "Processing",
-  SHIPPED: "Dispatched",
-  DELIVERED: "Delivered",
-  CANCELLED: "Cancelled"
-};
-
 export default function AdminOrderDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -49,6 +31,25 @@ export default function AdminOrderDetailPage() {
   const [error, setError] = useState("");
   const [updating, setUpdating] = useState(false);
   const [updateMsg, setUpdateMsg] = useState("");
+  const [statuses, setStatuses] = useState([]);
+  const [statusError, setStatusError] = useState("");
+
+  const statusLookup = useMemo(() => {
+    const map = new Map();
+
+    statuses.forEach((status) => {
+      const code = String(status.code || "").toUpperCase();
+      if (code) map.set(code, status);
+    });
+
+    return map;
+  }, [statuses]);
+
+  function labelFor(code) {
+    const key = String(code || "").toUpperCase();
+    const status = statusLookup.get(key);
+    return status?.label || code || "Unknown";
+  }
 
   function load() {
     setLoading(true);
@@ -63,10 +64,27 @@ export default function AdminOrderDetailPage() {
     load();
   }, [id]);
 
+  useEffect(() => {
+    let ignore = false;
+
+    setStatusError("");
+    getAdminOrderStatuses()
+      .then((data) => {
+        if (!ignore) setStatuses(Array.isArray(data) ? data : []);
+      })
+      .catch((err) => {
+        if (!ignore) setStatusError(err.message || "Unable to load status definitions.");
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
   async function changeStatus(next) {
     if (!order) return;
     const current = (order.status || "").toUpperCase();
-    if (!window.confirm(`Change order status from ${LABELS[current] || current} to ${LABELS[next] || next}?`)) {
+    if (!window.confirm(`Change order status from ${labelFor(current)} to ${labelFor(next)}?`)) {
       return;
     }
     setUpdating(true);
@@ -84,7 +102,7 @@ export default function AdminOrderDetailPage() {
   }
 
   const current = order ? (order.status || "").toUpperCase() : "";
-  const allowed = TRANSITIONS[current] || [];
+  const allowed = order?.allowedTransitions || [];
 
   return (
     <AdminLayout
@@ -94,6 +112,7 @@ export default function AdminOrderDetailPage() {
     >
       {loading && <div className="admin-panel">Loading…</div>}
       {error && <div className="admin-panel" style={{ color: "#B42318" }}>{error}</div>}
+      {statusError && <div className="admin-panel" role="alert" style={{ color: "#B42318" }}>{statusError}</div>}
       {updateMsg && <div className="admin-panel" style={{ color: "#28734A" }}>{updateMsg}</div>}
 
       {order && !loading && (
@@ -134,7 +153,7 @@ export default function AdminOrderDetailPage() {
                 <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Customer</span><span>{order.customerName || order.customer_name}</span></div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Phone</span><span>{order.customerPhone || order.customer_phone}</span></div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Payment Status</span><span>{order.paymentStatus || order.payment_status}</span></div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Status</span><span>{LABELS[current] || current}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Status</span><span>{labelFor(current)}</span></div>
               </div>
             </div>
 
@@ -146,7 +165,7 @@ export default function AdminOrderDetailPage() {
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                   {allowed.map((next) => (
                     <button key={next} className="button button-primary" type="button" disabled={updating} onClick={() => changeStatus(next)}>
-                      {updating ? "Updating…" : `Mark as ${LABELS[next] || next}`}
+                      {updating ? "Updating…" : `Mark as ${labelFor(next)}`}
                     </button>
                   ))}
                 </div>

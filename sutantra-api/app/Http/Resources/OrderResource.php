@@ -39,6 +39,7 @@ class OrderResource extends JsonResource
                 'unitPrice' => (float) $item->unit_price,
                 'totalPrice' => (float) $item->total_price,
             ])),
+            'itemsCount' => $this->whenCounted('items'),
             'createdAt' => $this->created_at?->toISOString(),
         ];
     }

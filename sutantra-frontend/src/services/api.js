@@ -35,17 +35,18 @@ export function mediaUrl(path) {
 }
 
 async function request(path, options = {}) {
-  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+  const { unwrapData = true, ...fetchOptions } = options;
+  const isFormData = typeof FormData !== "undefined" && fetchOptions.body instanceof FormData;
 
   let response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
-      ...options,
+      ...fetchOptions,
       headers: {
         Accept: "application/json",
-        ...(options.body && !isFormData ? { "Content-Type": "application/json" } : {}),
+        ...(fetchOptions.body && !isFormData ? { "Content-Type": "application/json" } : {}),
         ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
-        ...options.headers
+        ...fetchOptions.headers
       }
     });
   } catch {
@@ -78,8 +79,16 @@ async function request(path, options = {}) {
     throw Object.assign(new Error(message), { status: response.status, payload });
   }
 
-  // Unwrap the standard Laravel resource envelope, when present.
-  if (payload && typeof payload === "object" && !Array.isArray(payload) && "data" in payload) {
+  // Unwrap the standard Laravel resource envelope, when present. Paginated
+  // collections opt out so their current_page/last_page/total metadata is not
+  // discarded along with the envelope.
+  if (
+    unwrapData &&
+    payload &&
+    typeof payload === "object" &&
+    !Array.isArray(payload) &&
+    "data" in payload
+  ) {
     return payload.data;
   }
   return payload;
@@ -228,14 +237,28 @@ export function getOrder(id) {
 }
 
 // Admin Orders
-export function getAdminOrders(params = {}) {
+function adminOrderQuery(params = {}) {
   const query = new URLSearchParams();
   if (params.search) query.set("search", params.search);
   if (params.status) query.set("status", params.status);
   if (params.date) query.set("date", params.date);
+  if (params.period) query.set("period", params.period);
+  if (params.anchor) query.set("anchor", params.anchor);
+  if (params.dateFrom) query.set("date_from", params.dateFrom);
+  if (params.dateTo) query.set("date_to", params.dateTo);
   if (params.page) query.set("page", params.page);
-  const qs = query.toString();
-  return request(`/api/admin/orders${qs ? `?${qs}` : ""}`);
+  if (params.perPage) query.set("per_page", params.perPage);
+  return query.toString();
+}
+
+export function getAdminOrders(params = {}) {
+  const qs = adminOrderQuery(params);
+  return request(`/api/admin/orders${qs ? `?${qs}` : ""}`, { unwrapData: false });
+}
+
+export function getAdminOrdersAnalytics(params = {}) {
+  const qs = adminOrderQuery(params);
+  return request(`/api/admin/orders/analytics${qs ? `?${qs}` : ""}`);
 }
 
 export function getAdminOrder(id) {
