@@ -16,7 +16,7 @@ Inspected over SSH on 2026-10-23 as `u368424636@147.93.101.77:65002`.
 | React build (`index.html` + `assets/`) | same document root |
 | Laravel API front controller | `/home/u368424636/domains/sutantrafoods.in/public_html/sutantra-api/index.php` |
 | Laravel application root | `/home/u368424636/sutantra-api/sutantra-api` |
-| Laravel `vendor/` | `/home/u368424636/sutantra-api/sutantra-api/vendor` (server-side, never synced) |
+| Laravel `vendor/` | `/home/u368424636/sutantra-api/sutantra-api/vendor` (deployed as a CI-built, dev-free artifact; not installed on the server with Composer) |
 | Laravel `.env` | `/home/u368424636/sutantra-api/sutantra-api/.env` (mode `600`, never synced) |
 | Runtime media / uploads | `/home/u368424636/sutantra-storage/uploads` (`UPLOADS_PATH`) |
 | Repository mirror on server | `/home/u368424636/sutantra-api` (contains `sutantra-api/`, `sutantra-frontend/`, `uploads/`) |
@@ -53,10 +53,13 @@ Deployed:
 Never transferred or deleted:
 
 - `.env` and `.env.*` (production secrets stay on the server)
-- `vendor/` (installed on the server with Composer)
+- `vendor/` (deployed from a CI-built artifact; the server no longer runs `composer install`)
 - `storage/` (logs, sessions, framework cache)
 - `bootstrap/cache/*.php`
 - `database/*.sqlite`
+- `database/factories/` (deployed separately only if needed; CI excludes them from prod source)
+- `tests/` and `phpunit.xml` (CI runs them before deploy; excluded from prod source)
+- `vendor/` replaced by `vendor-*.tar.gz` transferred as a CI artifact
 - `node_modules/`, `dist/`, `.git/`
 - `sutantra-storage/uploads`, `public_html/sutantra-api`, `default.php`
 - `~/backups`
@@ -177,16 +180,27 @@ tar -czf ~/backups/frontend-$TS-manual.tar.gz \
   -C ~/domains/sutantrafoods.in/public_html index.html assets
 exit
 
+# Upload a CI-built dev-free vendor artifact (Hostinger PHP CLI may have
+# restricted process functions; do not run Composer on the server)
+scp -P 65002 vendor.tar.gz u368424636@147.93.101.77:/home/u368424636/sutantra-api/sutantra-api/vendor-release.tar.gz
+
 # Laravel source (from the local repository)
 rsync -rlptz --delay-updates -e "ssh -p 65002" \
-  --exclude='.git/' --exclude='vendor/' --exclude='node_modules/' \
+  --exclude='.git/' --exclude='.github/' --exclude='vendor/' --exclude='node_modules/' \
   --exclude='storage/' --exclude='bootstrap/cache/*.php' \
-  --exclude='database/*.sqlite' \
+  --exclude='database/*.sqlite' --exclude='database/factories/' \
+  --exclude='tests/' --exclude='phpunit.xml' --exclude='phpunit.xml.dist' \
   --include='.env.example' --exclude='.env' --exclude='.env.*' \
   sutantra-api/ u368424636@147.93.101.77:/home/u368424636/sutantra-api/sutantra-api/
 
 ssh -i ~/.ssh/sutantrafoods_deploy -p 65002 u368424636@147.93.101.77 \
-  'cd ~/sutantra-api/sutantra-api && composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction && php artisan config:clear && php artisan config:cache && php artisan route:clear && php artisan view:clear'
+  'cd ~/sutantra-api/sutantra-api && \
+   rm -rf vendor.new vendor.previous && mkdir -p vendor.new && tar -xzf vendor-release.tar.gz -C vendor.new --strip-components=1 && \
+   php -r "require \"vendor.new/autoload.php\";" && \
+   rm -f bootstrap/cache/packages.php bootstrap/cache/services.php bootstrap/cache/config.php bootstrap/cache/routes-*.php bootstrap/cache/events.php && \
+   if [ -d vendor ]; then mv vendor vendor.previous; fi && mv vendor.new vendor && \
+   php artisan package:discover --ansi && php artisan config:clear && php artisan config:cache && php artisan route:clear && php artisan view:clear && \
+   rm -f vendor-release.tar.gz'
 
 # Frontend assets, then the index swap
 rsync -rz --delete -e "ssh -p 65002" sutantra-frontend/dist/assets/ \
@@ -206,8 +220,10 @@ ssh -i ~/.ssh/sutantrafoods_deploy -p 65002 u368424636@147.93.101.77 \
 
 Backups are created by every deployment in `~/backups`:
 
-- `backend-<UTC timestamp>-<previous SHA>.tar.gz` — Laravel source only
-  (no `vendor/`, `storage/`, `.env`, `bootstrap/cache`)
+- `backend-<UTC timestamp>-<previous SHA>.tar.gz` - Laravel source only
+  (no `vendor/`, `vendor.*`, `vendor-release.tar.gz`, `storage/`, `.env`,
+  `bootstrap/cache`). The previous `vendor/` is preserved as `vendor.previous`
+  between releases for a quick rollback.
 - `frontend-<UTC timestamp>.tar.gz` — previous `index.html` + `assets/`
 
 List them:
@@ -217,13 +233,20 @@ ssh -i ~/.ssh/sutantrafoods_deploy -p 65002 u368424636@147.93.101.77 \
   'ls -1t ~/backups/backend-*.tar.gz ~/backups/frontend-*.tar.gz | head -10'
 ```
 
-Restore Laravel source (does not touch `.env`, uploads, storage or database):
+Restore Laravel source and vendor (does not touch `.env`, uploads, storage or database):
 
 ```bash
 ssh -i ~/.ssh/sutantrafoods_deploy -p 65002 u368424636@147.93.101.77
 tar -xzf ~/backups/backend-<timestamp>-<sha>.tar.gz -C ~/sutantra-api/sutantra-api
 cd ~/sutantra-api/sutantra-api
-composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+# If the current vendor is incompatible with the restored source, swap the
+# vendor tree from the previous release or from a CI artifact.
+if [ -d vendor.previous ]; then
+  rm -rf vendor
+  mv vendor.previous vendor
+fi
+rm -f bootstrap/cache/packages.php bootstrap/cache/services.php bootstrap/cache/config.php bootstrap/cache/routes-*.php bootstrap/cache/events.php
+php artisan package:discover --ansi
 php artisan config:clear && php artisan config:cache
 php artisan route:clear && php artisan view:clear
 ```
@@ -258,9 +281,10 @@ cd sutantra-frontend && npm ci && npm run build
 cd sutantra-api && composer validate --strict && php artisan route:list --except-vendor
 ```
 
-The local PHP 8.5 build on this workstation lacks `pdo_sqlite`, so
-`php artisan test` cannot run locally (99 tests fail with "could not find
-driver"). CI provisions the SQLite driver, so the test suite runs there.
+Local tests use an isolated MySQL test database (the same model as CI). Ensure
+`pdo_mysql` is available and a local test schema is configured; `php artisan test`
+should not connect to the Hostinger/production database. CI provisions an
+ephemeral MySQL 8.4 service and enforces database isolation.
 
 ---
 
@@ -282,7 +306,8 @@ Intentionally retained:
 - `~/sutantra-api/uploads` — repository copy of the shared media; runtime uses
   `~/sutantra-storage/uploads`.
 - `~/backups`, `~/backup-imagefix-20261015` — rollback material.
-- `sutantra-api/vendor`, `storage`, `bootstrap/cache` — runtime.
+- `storage`, `bootstrap/cache` - runtime. `sutantra-api/vendor` is a deployed
+  artifact (kept with `vendor.previous` for rollback).
 - `uploads/` at repository root — canonical media source (62 tracked files).
 
 ---

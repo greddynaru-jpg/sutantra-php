@@ -7,6 +7,7 @@ import {
   createAddress,
   createOrder,
   deleteAddress,
+  getActiveOffers,
   getAddresses,
   getCart,
   getCheckoutQuote,
@@ -60,6 +61,13 @@ export default function CheckoutPage() {
   const [submitting, setSubmitting] = useState(false);
   const [order, setOrder] = useState(null);
   const [orderError, setOrderError] = useState("");
+  const [offers, setOffers] = useState([]);
+  const [offersLoading, setOffersLoading] = useState(false);
+  const [offerInput, setOfferInput] = useState("");
+  const [appliedOfferCode, setAppliedOfferCode] = useState("");
+  const [offerMessage, setOfferMessage] = useState("");
+  const [offerError, setOfferError] = useState("");
+  const [offerBusy, setOfferBusy] = useState(false);
 
   const quoteSeq = useRef(0);
   const submittingRef = useRef(false);
@@ -75,6 +83,25 @@ export default function CheckoutPage() {
       })
       .finally(() => {
         if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    setOffersLoading(true);
+    getActiveOffers()
+      .then((data) => {
+        if (!active) return;
+        setOffers(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (active) setOffers([]);
+      })
+      .finally(() => {
+        if (active) setOffersLoading(false);
       });
     return () => {
       active = false;
@@ -167,7 +194,7 @@ export default function CheckoutPage() {
 
     const timer = setTimeout(async () => {
       try {
-        const result = await getCheckoutQuote(pincode);
+        const result = await getCheckoutQuote(pincode, appliedOfferCode);
         if (seq !== quoteSeq.current) return;
         if (!result?.serviceable) {
           setQuote(null);
@@ -178,6 +205,25 @@ export default function CheckoutPage() {
         setQuote(result);
         setPinState("serviceable");
         setPinMessage(`Delivery is available to ${result.pincode}.`);
+        if (result.offerError) {
+          setOfferError(result.offerError);
+          setOfferMessage("");
+          if (appliedOfferCode) {
+            setAppliedOfferCode("");
+            setOfferInput("");
+          }
+        } else if (result.offer) {
+          setOfferError("");
+          setOfferMessage(`Offer ${result.offer.code} applied.`);
+        } else if (!appliedOfferCode) {
+          setOfferError("");
+          setOfferMessage("");
+        } else if (result && !result.offer && appliedOfferCode) {
+          setOfferError("This offer is no longer eligible for your cart.");
+          setOfferMessage("");
+          setAppliedOfferCode("");
+          setOfferInput("");
+        }
       } catch (error) {
         if (seq !== quoteSeq.current) return;
         if (error.status === 401) {
@@ -193,7 +239,7 @@ export default function CheckoutPage() {
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [form.pincode, order, cartHasItems, navigate]);
+  }, [form.pincode, order, cartHasItems, navigate, appliedOfferCode]);
 
   const summaryItems = (quote?.items ?? cartItems).map((item) => ({
     key: item.productId ?? item.id,
@@ -206,6 +252,8 @@ export default function CheckoutPage() {
   const subtotal =
     quote?.subtotal ??
     summaryItems.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
+
+  const discountAmount = Number(quote?.discountAmount || 0);
 
   const serviceable =
     pinState === "serviceable" && quote !== null && quote.pincode === form.pincode.trim();
@@ -394,7 +442,8 @@ export default function CheckoutPage() {
         address: form.address.trim(),
         city: form.city.trim(),
         state: form.state.trim(),
-        pincode: form.pincode.trim()
+        pincode: form.pincode.trim(),
+        offer_code: appliedOfferCode || undefined
       });
       setOrder(created);
       setCart(null);
@@ -406,11 +455,16 @@ export default function CheckoutPage() {
         return;
       }
       const message =
+        error?.payload?.errors?.offer_code?.[0] ||
         error?.payload?.errors?.pincode?.[0] ||
         error?.payload?.errors?.cart?.[0] ||
         error.message ||
         "Could not place your order. Please try again.";
       setOrderError(message);
+      if (error?.payload?.errors?.offer_code?.[0]) {
+        setOfferError(error?.payload?.errors?.offer_code?.[0]);
+        setOfferMessage("");
+      }
       if (message === UNSERVICEABLE_MESSAGE) {
         setQuote(null);
         setPinState("unserviceable");
@@ -450,6 +504,9 @@ export default function CheckoutPage() {
               <div><dt>Order number</dt><dd>{order.orderNumber}</dd></div>
               <div><dt>Status</dt><dd>{order.status}</dd></div>
               <div><dt>Payment</dt><dd>{order.paymentStatus} (not collected)</dd></div>
+              <div><dt>Subtotal</dt><dd>{fmt(order.subtotal)}</dd></div>
+              <div><dt>Discount</dt><dd>{fmt(order.discountAmount)}</dd></div>
+              <div><dt>Delivery</dt><dd>{fmt(order.deliveryCharge)}</dd></div>
               <div><dt>Total</dt><dd>{fmt(order.totalAmount)}</dd></div>
             </dl>
 
@@ -560,7 +617,7 @@ export default function CheckoutPage() {
 
           {orderError && <div className="form-alert error" role="alert">{orderError}</div>}
 
-                    <section className="saved-addresses modern-address-section">
+          <section className="saved-addresses modern-address-section">
             <div className="saved-addresses-header">
               <h2>Delivery Address</h2>
             </div>
@@ -730,8 +787,119 @@ export default function CheckoutPage() {
             <span>{fmt(subtotal)}</span>
           </div>
 
+          {(() => {
+            const eligible = (offers || []).filter((o) => {
+              if (!o) return false;
+              if (o.is_active === false) return false;
+              if (o.expiresAt) {
+                const exp = new Date(o.expiresAt);
+                const today = new Date(new Date().toDateString());
+                if (exp < today) return false;
+              }
+              if (o.startsAt) {
+                const start = new Date(o.startsAt);
+                const today = new Date(new Date().toDateString());
+                if (start > today) return false;
+              }
+              return true;
+            });
+            if (offersLoading) return null;
+            if (eligible.length === 0) return null;
+            return (
+              <div className="offer-dropdown-wrap">
+                <label className="offer-dropdown-label" htmlFor="offer-dropdown">Apply Offer</label>
+                <select
+                  id="offer-dropdown"
+                  className="offer-dropdown"
+                  value={appliedOfferCode}
+                  disabled={!serviceable || offerBusy}
+                  onChange={async (e) => {
+                    const code = e.target.value;
+                    setOfferBusy(true);
+                    setOfferError("");
+                    setOfferMessage("");
+                    if (!code) {
+                      setAppliedOfferCode("");
+                      setOfferInput("");
+                      setOfferBusy(false);
+                      setOfferMessage("");
+                      setOfferError("");
+                      if (serviceable && form.pincode.trim()) {
+                        try {
+                          const result = await getCheckoutQuote(form.pincode.trim(), "");
+                          if (result?.serviceable) {
+                            setQuote(result);
+                            setPinState("serviceable");
+                            setPinMessage(`Delivery is available to ${result.pincode}.`);
+                          }
+                        } catch {
+                          // ignore
+                        }
+                      }
+                      return;
+                    }
+                    try {
+                      const result = await getCheckoutQuote(form.pincode.trim(), code);
+                      if (!result?.serviceable) {
+                        setOfferError(result?.message || UNSERVICEABLE_MESSAGE);
+                        setAppliedOfferCode("");
+                        setOfferInput("");
+                        setOfferBusy(false);
+                        return;
+                      }
+                      if (result.offerError) {
+                        setOfferError(result.offerError);
+                        setAppliedOfferCode("");
+                        setOfferInput("");
+                        setOfferBusy(false);
+                        return;
+                      }
+                      if (result.offer) {
+                        const applied = result.offer.code;
+                        setAppliedOfferCode(applied);
+                        setOfferInput(applied);
+                        setQuote(result);
+                        setPinState("serviceable");
+                        setPinMessage(`Delivery is available to ${result.pincode}.`);
+                        setOfferError("");
+                        setOfferMessage(`Offer ${applied} applied.`);
+                      } else {
+                        setAppliedOfferCode("");
+                        setOfferInput("");
+                      }
+                    } catch (error) {
+                      setOfferError(error?.message || "Could not apply offer code.");
+                      setAppliedOfferCode("");
+                      setOfferInput("");
+                    } finally {
+                      setOfferBusy(false);
+                    }
+                  }}
+                >
+                  <option value="">No offer</option>
+                  {eligible.map((offer) => {
+                    const code = (offer.code || "").toUpperCase();
+                    return (
+                      <option key={code} value={code}>
+                        {code}
+                      </option>
+                    );
+                  })}
+                </select>
+                {offerError && <div className="offer-msg error">{offerError}</div>}
+                {offerMessage && !offerError && <div className="offer-msg success">{offerMessage}</div>}
+              </div>
+            );
+          })()}
+
           {serviceable ? (
             <>
+              {appliedOfferCode && discountAmount > 0 && (
+                <div className="summary-row discount-row">
+                  <span>Offer discount ({appliedOfferCode})</span>
+                  <span>- {fmt(discountAmount)}</span>
+                </div>
+              )}
               <div className="summary-row">
                 <span>Delivery</span>
                 <span>{fmt(quote.deliveryCharge)}</span>

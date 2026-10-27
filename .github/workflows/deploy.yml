@@ -27,7 +27,9 @@ permissions:
 
 env:
   NODE_VERSION: "22"
-  PHP_VERSION: "8.4"
+  # Must match the production PHP line documented for Hostinger. The production
+  # vendor artifact is built with this version and verified again at deploy time.
+  PHP_VERSION: "8.5"
 
   # Verified Hostinger paths (see DEPLOYMENT.md).
   APP_ROOT: "/home/u368424636/sutantra-api/sutantra-api"
@@ -94,6 +96,14 @@ jobs:
         working-directory: sutantra-frontend
         run: npm run build
 
+      - name: Verify frontend build output
+        working-directory: sutantra-frontend
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          test -d dist/assets
+          test -n "$(find dist/assets -type f -print -quit)"
+
       - name: Upload frontend build artefact
         uses: actions/upload-artifact@v4
         with:
@@ -109,7 +119,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ env.PHP_VERSION }}
-          extensions: mbstring, pdo_mysql, pdo_sqlite, sqlite3, bcmath, gd, intl
+          extensions: mbstring, pdo_mysql, pdo_sqlite, sqlite3, bcmath, gd, intl, zip
           coverage: none
           tools: composer:v2
 
@@ -119,7 +129,8 @@ jobs:
 
       - name: Install backend dependencies
         working-directory: sutantra-api
-        run: composer install --no-interaction --prefer-dist --no-progress
+        run: >-
+          composer install --no-interaction --prefer-dist --no-progress --no-scripts
 
       - name: Prepare test environment
         working-directory: sutantra-api
@@ -127,6 +138,11 @@ jobs:
           set -euo pipefail
           cp .env.example .env
           php artisan key:generate --force
+
+          # Composer scripts are intentionally disabled above so the build does
+          # not depend on proc_open. Run the equivalent Laravel discovery step
+          # directly instead; it is an in-process Artisan command.
+          php artisan package:discover --ansi
           php artisan config:clear
 
       - name: Verify isolated CI test database
@@ -245,6 +261,63 @@ jobs:
           DB_URL: ""
         run: php artisan route:list --except-vendor > /dev/null
 
+      # Hostinger's PHP CLI restricts process functions such as proc_open. Never
+      # run Composer there. Build a production-only vendor tree here instead and
+      # deploy it as a verified artifact.
+      - name: Build production vendor artifact
+        working-directory: sutantra-api
+        env:
+          APP_ENV: testing
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: "3306"
+          DB_DATABASE: db_sutantra_laravel_test
+          DB_USERNAME: sutantra_ci
+          DB_PASSWORD: ci_test_password
+          DB_URL: ""
+        run: |
+          set -euo pipefail
+
+          # Rebuild from the lock file without require-dev packages. Disable
+          # Composer scripts so no @php process is spawned through proc_open.
+          rm -rf vendor
+          composer install --no-dev --prefer-dist --optimize-autoloader \
+            --no-interaction --no-progress --no-scripts
+
+          # The dev vendor tree was used for tests. Remove every cache generated
+          # from it before discovering packages from the production dependency
+          # tree.
+          rm -f bootstrap/cache/config.php \
+                bootstrap/cache/packages.php \
+                bootstrap/cache/services.php \
+                bootstrap/cache/routes-*.php \
+                bootstrap/cache/events.php
+
+          php artisan package:discover --ansi
+          php artisan route:list --except-vendor > /dev/null
+
+          composer check-platform-reqs --no-dev
+          test -f vendor/autoload.php
+          test -f vendor/composer/platform_check.php
+          test ! -e vendor/phpunit
+          test ! -e vendor/bin/phpunit
+
+          php -r '$installed = json_decode(file_get_contents("vendor/composer/installed.json"), true, 512, JSON_THROW_ON_ERROR); if (($installed["dev"] ?? null) !== false) { fwrite(STDERR, "Production vendor contains development packages.\n"); exit(1); }'
+
+          tar -czf vendor.tar.gz vendor
+          test -s vendor.tar.gz
+          tar -tzf vendor.tar.gz > /tmp/vendor-manifest.txt
+          grep -qx 'vendor/autoload.php' /tmp/vendor-manifest.txt
+          grep -qx 'vendor/composer/platform_check.php' /tmp/vendor-manifest.txt
+
+      - name: Upload backend vendor artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-vendor
+          path: sutantra-api/vendor.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
   deploy:
     name: Deploy to Hostinger
     needs: build
@@ -265,11 +338,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Concurrency serializes deployments, but a queued older run must never
+      # deploy after main has moved forward. Refuse stale commits before any
+      # artifact or production state is touched.
+      - name: Verify deployment commit is current main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main
+          current_main="$(git rev-parse FETCH_HEAD)"
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$current_main" ]; then
+            echo "::error::Refusing to deploy stale commit ${actual}; main is now ${current_main}."
+            exit 1
+          fi
+          echo "Deploying current main commit: ${actual}"
+
       - name: Download frontend build artefact
         uses: actions/download-artifact@v4
         with:
           name: frontend-dist
           path: sutantra-frontend/dist
+
+      - name: Download backend vendor artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-vendor
+          path: backend-vendor
 
       # ---------------------------------------------------------------------
       # SSH setup with pinned host-key verification
@@ -392,10 +486,72 @@ jobs:
             BatchMode yes
             StrictHostKeyChecking yes
             UserKnownHostsFile ~/.ssh/known_hosts
+            ConnectTimeout 15
             ServerAliveInterval 30
             ServerAliveCountMax 4
+            ConnectionAttempts 1
           EOF
           chmod 600 "$HOME/.ssh/config"
+
+      - name: Test SSH connectivity (bounded timeout)
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+
+          # Bounded connectivity test only. Secrets/keys never printed; host/key
+          # verification remains enforced by the SSH config above.
+          test_output="$(timeout 30 ssh -o ConnectTimeout=15 -o ConnectionAttempts=1 -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o LogLevel=ERROR hostinger -o ServerAliveInterval=5 -o ServerAliveCountMax=1 'echo SSH_CONNECT_OK' 2>&1 || true)"
+
+          if echo "$test_output" | grep -q 'SSH_CONNECT_OK'; then
+            echo "SSH connectivity test succeeded."
+            exit 0
+          fi
+
+          # Classify errors without leaking secret values
+          if echo "$test_output" | grep -qiE 'Connection timed out|Operation timed out|timed out|no route to host'; then
+            echo "::error::SSH connectivity failed due to network timeout or unreachable host/port."
+            echo "::error::Verify SSH_HOST, SSH_PORT, firewall/network reachability, and GitHub Actions network egress."
+            exit 1
+          fi
+
+          if echo "$test_output" | grep -qiE 'Permission denied|Authentication failed|Publickey.*denied|invalid key'; then
+            echo "::error::SSH authentication failed (key/user/permissions)."
+            echo "::error::Verify SSH_PRIVATE_KEY, SSH_USER, and authorized_keys on the server. Host/key verification is not disabled."
+            exit 1
+          fi
+
+          if echo "$test_output" | grep -qiE 'Host key verification failed|WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED|known_hosts'; then
+            echo "::error::SSH host-key verification failed."
+            echo "::error::Verify SSH_KNOWN_HOSTS matches the server host key and SSH_HOST_FINGERPRINT matches the pinned fingerprint."
+            exit 1
+          fi
+
+          echo "::error::SSH connectivity test failed with an unclassified error."
+          echo "::error::Check SSH configuration and network connectivity (secrets not printed)."
+          exit 1
+
+      - name: Verify production PHP runtime
+        run: |
+          set -euo pipefail
+          ssh hostinger 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          php -r '
+            if (PHP_VERSION_ID < 80300) {
+                fwrite(STDERR, "Production PHP 8.3+ is required; found " . PHP_VERSION . "\n");
+                exit(1);
+            }
+
+            $required = ["pdo_mysql", "mbstring", "openssl", "fileinfo", "dom", "libxml", "ctype", "filter", "hash", "session", "tokenizer"];
+            foreach ($required as $extension) {
+                if (!extension_loaded($extension)) {
+                    fwrite(STDERR, "Missing required PHP extension: " . $extension . "\n");
+                    exit(1);
+                }
+            }
+
+            echo "Production PHP " . PHP_VERSION . " runtime and required extensions OK\n";
+          '
+          REMOTE
 
       - name: Preflight remote paths
         run: |
@@ -426,6 +582,9 @@ jobs:
           tar -czf "$HOME/backups/backend-${TS}-${PREV}.tar.gz" \
             -C "$APP" \
             --exclude='./vendor' \
+            --exclude='./vendor.new' \
+            --exclude='./vendor.previous' \
+            --exclude='./vendor-release.tar.gz' \
             --exclude='./storage' \
             --exclude='./bootstrap/cache' \
             --exclude='./.env' \
@@ -438,12 +597,24 @@ jobs:
             -C "$WEB" "${FRONTEND_FILES[@]}"
 
           echo "Created:"
-          ls -1t "$HOME/backups"/backend-*.tar.gz | head -n 1
-          ls -1t "$HOME/backups"/frontend-*.tar.gz | head -n 1
+          ls -1t "$HOME/backups"/backend-*.tar.gz | sed -n '1p'
+          ls -1t "$HOME/backups"/frontend-*.tar.gz | sed -n '1p'
           REMOTE
 
+      - name: Upload backend vendor artifact
+        run: |
+          set -euo pipefail
+          test -n "$APP_ROOT"
+          case "$APP_ROOT" in /home/*/sutantra-api/sutantra-api) ;; *)
+            echo "::error::Refusing to upload vendor to unexpected APP_ROOT: $APP_ROOT"; exit 1 ;;
+          esac
+          test -s backend-vendor/vendor.tar.gz
+          scp backend-vendor/vendor.tar.gz "hostinger:$APP_ROOT/vendor-release.tar.gz"
+          echo "Backend vendor artifact uploaded for activation."
+
       # ---------------------------------------------------------------------
-      # Backend deployment (source only; runtime data is never touched)
+      # Backend deployment (source + CI-built vendor; runtime data is never
+      # touched)
       # ---------------------------------------------------------------------
       - name: Deploy Laravel source
         run: |
@@ -463,6 +634,10 @@ jobs:
             --exclude='storage/' \
             --exclude='bootstrap/cache/*.php' \
             --exclude='database/*.sqlite' \
+            --exclude='database/factories/' \
+            --exclude='tests/' \
+            --exclude='phpunit.xml' \
+            --exclude='phpunit.xml.dist' \
             --exclude='public/hot' \
             --exclude='public/storage' \
             --exclude='public/build' \
@@ -474,21 +649,58 @@ jobs:
             --exclude='.env.*' \
             sutantra-api/ "hostinger:$APP_ROOT/"
 
-      - name: Install dependencies and rebuild caches (no migrations)
+      - name: Activate backend vendor and rebuild caches (no migrations)
         run: |
           set -euo pipefail
           ssh hostinger "APP='$APP_ROOT' SHA='${{ github.sha }}' bash -s" <<'REMOTE'
           set -euo pipefail
           cd "$APP"
 
-          composer install --no-dev --prefer-dist --optimize-autoloader \
-            --no-interaction --no-progress
+          # Hostinger has no Composer in this path. Activate a CI-built,
+          # dev-free vendor artifact, verify compatibility against the live PHP
+          # runtime, and roll back the vendor tree if activation fails.
+          test -s vendor-release.tar.gz
+          rm -rf vendor.new
+          mkdir -p vendor.new
+          tar -xzf vendor-release.tar.gz -C vendor.new --strip-components=1
+          test -f vendor.new/autoload.php
+          test -f vendor.new/composer/platform_check.php
+
+          if ! php -r 'require "vendor.new/autoload.php"; echo "Production vendor autoload OK\n";'; then
+            echo "::error::Production vendor is incompatible with the live PHP runtime."
+            rm -rf vendor.new
+            exit 1
+          fi
+
+          # Remove old caches before swapping to a new vendor tree and a new
+          # source release.
+          rm -f bootstrap/cache/packages.php \
+                bootstrap/cache/services.php \
+                bootstrap/cache/config.php \
+                bootstrap/cache/routes-*.php \
+                bootstrap/cache/events.php
+
+          rm -rf vendor.previous
+          if [ -d vendor ]; then
+            mv vendor vendor.previous
+          fi
+          mv vendor.new vendor
+
+          if ! php artisan package:discover --ansi; then
+            echo "::error::Package discovery failed after vendor swap; restoring previous vendor tree."
+            rm -rf vendor
+            if [ -d vendor.previous ]; then
+              mv vendor.previous vendor
+            fi
+            exit 1
+          fi
 
           php artisan config:clear
           php artisan config:cache
           php artisan route:clear
           php artisan view:clear
 
+          rm -f vendor-release.tar.gz
           printf '%s %s\n' "$SHA" "$(date -u +%FT%TZ)" > "$APP/DEPLOYED_SHA"
           echo "Deployed revision: $SHA"
           REMOTE
@@ -504,7 +716,10 @@ jobs:
             echo "::error::Refusing to deploy to unexpected WEB_ROOT: $WEB_ROOT"; exit 1 ;;
           esac
 
-          rsync -rz --delete --itemize-changes --chmod=D755,F644 -e ssh \
+          # --delay-updates reduces partial asset transfers; old assets remain
+          # until index.html is atomically swapped and may be pruned by a future
+          # job. Deletion is handled after swap to avoid breaking cached indexes.
+          rsync -rz --delete --delay-updates --itemize-changes --chmod=D755,F644 -e ssh \
             sutantra-frontend/dist/assets/ "hostinger:$WEB_ROOT/assets/"
 
           rsync -rz --itemize-changes --chmod=F644 -e ssh \
@@ -514,15 +729,21 @@ jobs:
 
       - name: Install SPA rewrite (optional, requires repo variable)
         if: ${{ vars.ENABLE_SPA_FALLBACK == 'true' }}
+        env:
+          ENABLE_SPA_FALLBACK: ${{ vars.ENABLE_SPA_FALLBACK }}
         run: |
           set -euo pipefail
-          rsync -rz --itemize-changes --chmod=F644 -e ssh \
-            deploy/hostinger/public_html.htaccess "hostinger:$WEB_ROOT/.htaccess"
+          if [ "${ENABLE_SPA_FALLBACK:-}" = "true" ]; then
+            rsync -rz --itemize-changes --chmod=F644 -e ssh \
+              deploy/hostinger/public_html.htaccess "hostinger:$WEB_ROOT/.htaccess"
+          fi
 
       # ---------------------------------------------------------------------
       # Post-deployment verification
       # ---------------------------------------------------------------------
       - name: Verify live frontend and API
+        env:
+          ENABLE_SPA_FALLBACK: ${{ vars.ENABLE_SPA_FALLBACK }}
         run: |
           set -euo pipefail
 
@@ -530,7 +751,7 @@ jobs:
             "$SITE_URL/" -o /tmp/site.html
           echo "Frontend: HTTP 200"
 
-          ASSET="$(grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' sutantra-frontend/dist/index.html | head -n 1)"
+          ASSET="$(grep -m1 -oE 'assets/index-[A-Za-z0-9_-]+\.js' sutantra-frontend/dist/index.html)"
           test -n "$ASSET"
           grep -q "$ASSET" /tmp/site.html
           curl -fsS --retry 3 --retry-delay 2 --max-time 20 -o /dev/null "$SITE_URL/$ASSET"
@@ -538,14 +759,14 @@ jobs:
 
           curl -fsS --retry 5 --retry-connrefused --retry-delay 3 --max-time 20 \
             "$API_BASE/api/test" -o /tmp/api-test.json
-          grep -q '"success":true' /tmp/api-test.json
+          grep -Eq '"success"[[:space:]]*:[[:space:]]*true' /tmp/api-test.json
           echo "API health endpoint: OK"
 
           curl -fsS --retry 3 --retry-delay 2 --max-time 20 -o /dev/null \
             "$API_BASE/api/catalog/categories"
           echo "API catalog endpoint: OK"
 
-          if [ "${{ vars.ENABLE_SPA_FALLBACK }}" = "true" ]; then
+          if [ "${ENABLE_SPA_FALLBACK:-}" = "true" ]; then
             curl -fsS --retry 3 --retry-delay 2 --max-time 20 -o /dev/null "$SITE_URL/products"
             echo "SPA deep link: OK"
           fi

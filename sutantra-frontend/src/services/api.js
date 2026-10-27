@@ -211,10 +211,10 @@ export function clearCart() {
 // Only the PIN code / address is sent; prices, delivery charges and totals
 // are always calculated by the backend.
 
-export function getCheckoutQuote(pincode) {
+export function getCheckoutQuote(pincode, offerCode = "") {
   return request("/api/checkout/quote", {
     method: "POST",
-    body: JSON.stringify({ pincode })
+    body: JSON.stringify({ pincode, offer_code: offerCode || undefined })
   });
 }
 

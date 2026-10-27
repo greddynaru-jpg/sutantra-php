@@ -17,10 +17,12 @@ use App\Models\HomePagePolicy;
 use App\Models\HomePageTeamMember;
 use App\Models\HomePageVision;
 use App\Models\OfferCode;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 /**
  * Public, read-only catalog + homepage endpoints.
@@ -135,17 +137,21 @@ class CatalogController extends Controller
     }
 
     /**
-     * Offer codes for the public homepage.
+     * Offer codes for the public/customer checkout.
      *
      * Eligibility follows the stored rules: the offer must be active, not
      * past its expiry date, and not exhausted by its usage limit. An active
      * offer with a future start date is included so the homepage can announce
      * it before it becomes redeemable. Only customer-facing fields are
      * returned (see PublicOfferCodeResource).
+     *
+     * Welcome offer (WELCOME10) is hidden for customers who have already
+     * successfully redeemed it (completed/paid orders with this offer applied).
      */
-    public function offers(): JsonResponse
+    public function offers(Request $request): JsonResponse
     {
         $today = now()->toDateString();
+        $user = Auth::guard('sanctum')->user() ?? $request->user();
 
         $offers = OfferCode::query()
             ->where('is_active', true)
@@ -157,6 +163,27 @@ class CatalogController extends Controller
             })
             ->orderByDesc('id')
             ->get();
+
+        if ($user !== null) {
+            $offers = $offers->filter(function (OfferCode $offer) use ($user): bool {
+                if (strtoupper($offer->code) === 'WELCOME10') {
+                    $redeemed = Order::query()
+                        ->where('user_id', $user->id)
+                        ->where(function ($q): void {
+                            $q->where('payment_status', Order::PAYMENT_PAID)
+                                ->orWhereIn('status', [Order::STATUS_CONFIRMED, Order::STATUS_SHIPPED, Order::STATUS_DELIVERED]);
+                        })
+                        ->where('discount_amount', '>', 0)
+                        ->exists();
+
+                    if ($redeemed) {
+                        return false;
+                    }
+                }
+
+                return true;
+            })->values();
+        }
 
         return PublicOfferCodeResource::collection($offers)->response();
     }

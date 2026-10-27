@@ -1,0 +1,145 @@
+diff --git a/sutantra-api/.env.example b/sutantra-api/.env.example
+index 4dd6494..b9f4c5c 100644
+--- a/sutantra-api/.env.example
++++ b/sutantra-api/.env.example
+@@ -64,11 +64,11 @@ UPLOADS_PATH=../uploads
+ UPLOADS_MAX_SIZE_KB=5120
+ 
+ # Initial SUPER_ADMIN provisioned by the SuperAdminSeeder (idempotent, hash-only).
+-# The password is a weak initial value — ROTATE IT BEFORE PRODUCTION.
++# Required before seeding: set a strong, unique password. Never commit a real value.
+ SUPER_ADMIN_NAME="Super Admin"
+ SUPER_ADMIN_EMAIL=greddy.naru@gmail.com
+ SUPER_ADMIN_PHONE=7702611919
+-SUPER_ADMIN_PASSWORD=543210
++SUPER_ADMIN_PASSWORD=
+ 
+ AWS_ACCESS_KEY_ID=
+ AWS_SECRET_ACCESS_KEY=
+diff --git a/sutantra-api/app/Http/Controllers/Api/CatalogController.php b/sutantra-api/app/Http/Controllers/Api/CatalogController.php
+index 2400d81..bd68914 100644
+--- a/sutantra-api/app/Http/Controllers/Api/CatalogController.php
++++ b/sutantra-api/app/Http/Controllers/Api/CatalogController.php
+@@ -135,11 +135,13 @@ public function policy(string $slug): JsonResponse
+     }
+ 
+     /**
+-     * Currently redeemable offer codes for the public homepage.
++     * Offer codes for the public homepage.
+      *
+-     * Eligibility follows the stored rules: the offer must be active, inside
+-     * its optional start/expiry window, and not exhausted by its usage limit.
+-     * Only customer-facing fields are returned (see PublicOfferCodeResource).
++     * Eligibility follows the stored rules: the offer must be active, not
++     * past its expiry date, and not exhausted by its usage limit. An active
++     * offer with a future start date is included so the homepage can announce
++     * it before it becomes redeemable. Only customer-facing fields are
++     * returned (see PublicOfferCodeResource).
+      */
+     public function offers(): JsonResponse
+     {
+@@ -147,9 +149,6 @@ public function offers(): JsonResponse
+ 
+         $offers = OfferCode::query()
+             ->where('is_active', true)
+-            ->where(function ($query) use ($today): void {
+-                $query->whereNull('starts_at')->orWhereDate('starts_at', '<=', $today);
+-            })
+             ->where(function ($query) use ($today): void {
+                 $query->whereNull('expires_at')->orWhereDate('expires_at', '>=', $today);
+             })
+diff --git a/sutantra-api/config/sutantra.php b/sutantra-api/config/sutantra.php
+index 5cd6e40..a2039a3 100644
+--- a/sutantra-api/config/sutantra.php
++++ b/sutantra-api/config/sutantra.php
+@@ -11,8 +11,9 @@
+     | Admin. The seeder is idempotent: it only creates the account when no
+     | SUPER_ADMIN exists yet, so a rotated password is never overwritten.
+     |
+-    | Only the bcrypt HASH is ever written to the database. The password below
+-    | is a weak initial value and MUST be rotated before production.
++    | Only the bcrypt HASH is ever written to the database. There is no
++    | fallback password: set SUPER_ADMIN_PASSWORD in .env before seeding and
++    | rotate it before production. The seeder refuses to run when it is empty.
+     |
+     */
+ 
+@@ -20,7 +21,7 @@
+         'name' => env('SUPER_ADMIN_NAME', 'Super Admin'),
+         'email' => env('SUPER_ADMIN_EMAIL', 'greddy.naru@gmail.com'),
+         'phone' => env('SUPER_ADMIN_PHONE', '7702611919'),
+-        'password' => env('SUPER_ADMIN_PASSWORD', '543210'),
++        'password' => env('SUPER_ADMIN_PASSWORD'),
+     ],
+ 
+ ];
+diff --git a/sutantra-api/database/seeders/SuperAdminSeeder.php b/sutantra-api/database/seeders/SuperAdminSeeder.php
+index 0f9f2e5..5f73b93 100644
+--- a/sutantra-api/database/seeders/SuperAdminSeeder.php
++++ b/sutantra-api/database/seeders/SuperAdminSeeder.php
+@@ -15,8 +15,8 @@
+  *   configured email/phone (creating it if absent).
+  * - Idempotent: once a SUPER_ADMIN exists nothing is modified, so a password
+  *   rotated after the first run is preserved.
+- * - The initial password is intentionally weak and must be rotated before
+- *   production. No public SUPER_ADMIN registration route exists.
++ * - The initial password is supplied via SUPER_ADMIN_PASSWORD and must be
++ *   rotated before production. No public SUPER_ADMIN registration route exists.
+  */
+ class SuperAdminSeeder extends Seeder
+ {
+@@ -30,6 +30,12 @@ public function run(): void
+             return;
+         }
+ 
++        if (blank($config['password'])) {
++            throw new \RuntimeException(
++                'SUPER_ADMIN_PASSWORD must be set to a strong value before seeding the first SUPER_ADMIN.'
++            );
++        }
++
+         $user = User::query()
+             ->where('email', $config['email'])
+             ->orWhere('phone', $config['phone'])
+diff --git a/sutantra-api/tests/Feature/PublicOfferCodeTest.php b/sutantra-api/tests/Feature/PublicOfferCodeTest.php
+index dfa1410..9bf03ef 100644
+--- a/sutantra-api/tests/Feature/PublicOfferCodeTest.php
++++ b/sutantra-api/tests/Feature/PublicOfferCodeTest.php
+@@ -9,9 +9,10 @@
+ /**
+  * Public, read-only offers endpoint used by the homepage marquee.
+  *
+- * Covers eligibility (active window + usage limit) and the deliberately
+- * narrow, customer-facing payload. All fields here are pre-existing; this
+- * endpoint adds no schema of its own.
++ * Covers eligibility (active, not expired, within the usage limit) and the
++ * deliberately narrow, customer-facing payload. Upcoming offers are shown
++ * before their start date. All fields here are pre-existing; this endpoint
++ * adds no schema of its own.
+  */
+ class PublicOfferCodeTest extends TestCase
+ {
+@@ -61,14 +62,20 @@ public function test_inactive_offers_are_hidden(): void
+             ->assertJsonCount(0, 'data');
+     }
+ 
+-    public function test_offers_outside_their_window_are_hidden(): void
++    public function test_expired_offers_are_hidden_but_upcoming_offers_are_shown(): void
+     {
+         $this->offer(['code' => 'EXPIRED', 'expires_at' => now()->subDay()->toDateString()]);
+-        $this->offer(['code' => 'FUTURE', 'starts_at' => now()->addDay()->toDateString()]);
++        $this->offer([
++            'code' => 'FUTURE',
++            'description' => 'Coming soon',
++            'starts_at' => now()->addDay()->toDateString(),
++        ]);
+ 
+         $this->getJson('/api/catalog/offers')
+             ->assertOk()
+-            ->assertJsonCount(0, 'data');
++            ->assertJsonCount(1, 'data')
++            ->assertJsonPath('data.0.code', 'FUTURE')
++            ->assertJsonPath('data.0.description', 'Coming soon');
+     }
+ 
+     public function test_open_ended_and_current_offers_are_shown(): void
