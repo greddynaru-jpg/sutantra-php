@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import Brand from "../components/Brand";
+import SiteHeader from "../components/SiteHeader";
 import { getOrders } from "../services/api";
 
 function fmt(value) {
@@ -82,13 +82,7 @@ export default function MyOrdersPage() {
 
   return (
     <main className="orders-page">
-      <header className="orders-header">
-        <Brand />
-        <div className="orders-header-actions">
-          <Link className="button button-light" to="/products">← Continue Shopping</Link>
-        </div>
-      </header>
-
+      <SiteHeader />
       <div className="orders-shell">
         <div className="orders-page-head">
           <div>

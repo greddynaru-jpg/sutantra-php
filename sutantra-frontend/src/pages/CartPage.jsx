@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import Brand from "../components/Brand";
+import SiteHeader from "../components/SiteHeader";
 import { useAuth } from "../contexts/AuthContext";
 import { useCart } from "../contexts/CartContext";
 import {
@@ -126,13 +126,7 @@ export default function CartPage() {
 
   return (
     <main className="cart-page">
-      <header className="cart-header">
-        <Brand />
-        <div className="cart-header-actions">
-          <Link className="button button-light" to="/products">← Continue Shopping</Link>
-          <button className="button button-outline" type="button" onClick={handleLogout}>Logout</button>
-        </div>
-      </header>
+      <SiteHeader />
 
       <div className="cart-shell">
         {error && <div className="cart-error" role="alert">{error}</div>}
@@ -185,7 +179,7 @@ export default function CartPage() {
                   const productImageUrlValue = item.imageUrl || item.product?.imageUrl || null;
                   const isAvailable =
                     item.available != null ? item.available : item.product?.available !== false;
-                  const stockQuantity = item.product?.stockQuantity ?? null;
+                  const stockQuantity = item.stockQuantity ?? item.product?.stockQuantity ?? null;
                   const atStockLimit = stockQuantity != null && item.quantity >= stockQuantity;
                   const lineTotal =
                     item.subtotal != null ? Number(item.subtotal) : Number(productPrice) * item.quantity;
@@ -201,10 +195,18 @@ export default function CartPage() {
                         <p className="cart-item-name" title={productName}>{productName}</p>
                         <div className="cart-item-meta">
                           <span>{fmt(productPrice)} / {productUnit}</span>
-                          <span className={`cart-item-avail ${isAvailable ? "avail" : "unavail"}`}>
-                            {isAvailable ? "Available" : "Unavailable"}
+                          <span className={`cart-item-avail ${isAvailable && (stockQuantity == null || stockQuantity > 0) ? "avail" : "unavail"}`}>
+                            {stockQuantity != null && stockQuantity <= 0 ? "Out of stock" : isAvailable ? "Available" : "Unavailable"}
                           </span>
                         </div>
+                        {stockQuantity != null && stockQuantity > 0 && (
+                          <div className="cart-item-meta">
+                            <span>In stock: {stockQuantity}</span>
+                          </div>
+                        )}
+                        {stockQuantity != null && stockQuantity > 0 && item.quantity >= stockQuantity && (
+                          <span className="cart-item-warning">Only {stockQuantity} available in stock</span>
+                        )}
                         <div className="qty-control">
                           <button
                             className="qty-btn"

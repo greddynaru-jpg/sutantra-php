@@ -587,6 +587,49 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   top: 20px;
 }
 .order-summary h2 { margin: 0 0 18px; font-family: "Playfair Display", Georgia, serif; font-size: 1.2rem; font-weight: 500; }
+
+.offer-dropdown-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+  width: 100%;
+  margin: 14px 0 8px;
+}
+
+.offer-dropdown-label-row {
+  margin-bottom: 0;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  min-width: 90px;
+}
+
+.offer-dropdown-select-row {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fff;
+  font-size: 0.95rem;
+}
+
+@media (max-width: 640px) {
+  .offer-dropdown-row {
+    gap: 8px;
+  }
+  .offer-dropdown-label-row {
+    min-width: 80px;
+    font-size: 0.88rem;
+  }
+  .offer-dropdown-select-row {
+    font-size: 0.9rem;
+    padding: 7px 9px;
+  }
+}
 .summary-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: #686868; padding: 6px 0; }
 .summary-divider { border: none; border-top: 1px solid #EAE6DD; margin: 10px 0; }
 .summary-total { display: flex; justify-content: space-between; gap: 12px; font-size: 16px; font-weight: 800; color: #343A34; padding: 8px 0 0; }

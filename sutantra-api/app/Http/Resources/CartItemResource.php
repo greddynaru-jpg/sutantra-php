@@ -29,6 +29,7 @@ class CartItemResource extends JsonResource
             'unit' => $product?->unit,
             'imageUrl' => $product?->image_url,
             'available' => (bool) ($product?->available ?? false),
+            'stockQuantity' => $product ? (int) $product->stock_quantity : null,
             'subtotal' => round($price * $quantity, 2),
             'product' => $product ? new ProductResource($product) : null,
         ];

@@ -9,6 +9,7 @@ use App\Models\CartItem;
 use App\Models\DeliveryPincode;
 use App\Models\OfferCode;
 use App\Models\Order;
+use App\Models\Payment;
 use App\Models\Product;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -257,6 +258,15 @@ class CheckoutController extends Controller
 
             foreach ($pricing['lines'] as $line) {
                 $order->items()->create($line);
+                $product = $products->get($line['product_id']);
+                if ($product !== null) {
+                    $newStock = (int) $product->stock_quantity - (int) $line['quantity'];
+                    if ($newStock < 0) {
+                        $newStock = 0;
+                    }
+                    $product->stock_quantity = $newStock;
+                    $product->save();
+                }
             }
 
             // The order is now the source of truth; clearing the cart in the
@@ -267,6 +277,121 @@ class CheckoutController extends Controller
         });
 
         return (new OrderResource($order))->response()->setStatusCode(201);
+    }
+
+    /**
+     * POST /api/checkout/pay
+     * Dummy payment flow: validate cart/amount, create/update payment as PAID.
+     */
+    public function pay(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'pincode' => ['required', 'digits:6'],
+            'offer_code' => ['nullable', 'string', 'max:50'],
+        ], [
+            'pincode.required' => 'Please enter your delivery PIN code.',
+            'pincode.digits' => 'Please enter a valid 6-digit PIN code.',
+        ]);
+
+        $user = $request->user();
+        $cart = $this->activeCart($request);
+
+        if ($cart === null || $cart->items()->count() === 0) {
+            throw ValidationException::withMessages([
+                'cart' => ['Your cart is empty.'],
+            ]);
+        }
+
+        $pincode = $this->serviceablePincode($data['pincode']);
+        if ($pincode === null) {
+            throw ValidationException::withMessages([
+                'pincode' => [self::UNSERVICEABLE_MESSAGE],
+            ]);
+        }
+
+        $cart->load('items.product');
+        $pricing = $this->priceItems($cart->items);
+        $delivery = round((float) $pincode->delivery_charge, 2);
+
+        $discountAmount = 0.0;
+        $appliedOffer = null;
+        $offerError = null;
+        if (!empty($data['offer_code'])) {
+            [$appliedOffer, $discountAmount, $offerError] = $this->evaluateOffer(
+                $data['offer_code'],
+                $pricing['subtotal'],
+                $user->id
+            );
+            if ($offerError !== null) {
+                throw ValidationException::withMessages([
+                    'offer_code' => [$offerError],
+                ]);
+            }
+        }
+
+        $totalAmount = round($pricing['subtotal'] - $discountAmount + $delivery, 2);
+        if ($totalAmount < 0) {
+            $totalAmount = 0.0;
+        }
+        if ($totalAmount <= 0) {
+            throw ValidationException::withMessages([
+                'amount' => ['Payable amount must be greater than zero.'],
+            ]);
+        }
+
+        $paymentReference = 'DUM-'.Str::upper(Str::random(12));
+
+        $payment = DB::transaction(function () use ($user, $totalAmount, $paymentReference) {
+            // Try to find existing pending payment for this user's cart context via most recent order? 
+            // Payment is associated to order_id; without order yet, create a placeholder flow not possible by FK.
+            // Create a temporary order not needed - use payment with order_id tied to a new pending order? 
+            // Reuse schema: payments.order_id unique FK to orders. Create a minimal pending order first.
+            $order = Order::create([
+                'order_number' => $this->newOrderNumber(),
+                'user_id' => $user->id,
+                'status' => Order::STATUS_CREATED,
+                'payment_status' => Order::PAYMENT_PENDING,
+                'subtotal' => 0,
+                'discount_amount' => 0,
+                'delivery_charge' => 0,
+                'tax_amount' => 0,
+                'total_amount' => $totalAmount,
+                'currency' => 'INR',
+                'customer_name' => $user->name ?? 'Customer',
+                'customer_phone' => $user->phone ?? '',
+                'customer_email' => $user->email,
+                'delivery_address' => '',
+            ]);
+
+            $payment = Payment::updateOrCreate(
+                ['order_id' => $order->id],
+                [
+                    'gateway' => 'DUMMY',
+                    'payment_method' => 'DUMMY',
+                    'payment_reference' => $paymentReference,
+                    'gateway_order_id' => $order->order_number,
+                    'gateway_payment_id' => $paymentReference,
+                    'amount' => $totalAmount,
+                    'currency' => 'INR',
+                    'status' => Payment::STATUS_PAID,
+                    'payment_status' => Payment::STATUS_PAID,
+                    'provider_reference' => $paymentReference,
+                ]
+            );
+
+            $order->update(['payment_status' => Order::PAYMENT_PAID, 'total_amount' => $totalAmount]);
+
+            return $payment;
+        });
+
+        return response()->json([
+            'status' => 'PAID',
+            'payment_status' => 'PAID',
+            'paymentReference' => $payment->payment_reference ?? $paymentReference,
+            'amount' => (float) $payment->amount,
+            'currency' => $payment->currency,
+            'message' => 'Payment successful.',
+        ]);
     }
 
     private function activeCart(Request $request): ?Cart

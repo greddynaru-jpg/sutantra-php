@@ -225,6 +225,13 @@ export function createOrder(fields) {
   });
 }
 
+export function payCheckout(payload) {
+  return request("/api/checkout/pay", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
 export function getOrders(params = {}) {
   const query = new URLSearchParams();
   if (params.page) query.set("page", params.page);

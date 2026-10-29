@@ -87,6 +87,7 @@ Route::middleware('auth:sanctum')->prefix('cart')->group(function () {
 // recalculated on the server from the database.
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/checkout/quote', [CheckoutController::class, 'quote']);
+    Route::post('/checkout/pay', [CheckoutController::class, 'pay']);
     Route::post('/orders', [CheckoutController::class, 'store']);
     Route::get('/orders', [OrderController::class, 'index']);
     Route::get('/orders/{order}', [OrderController::class, 'show']);

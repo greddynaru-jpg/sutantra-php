@@ -11,6 +11,7 @@ import {
   getAddresses,
   getCart,
   getCheckoutQuote,
+  payCheckout,
   updateAddress
 } from "../services/api";
 
@@ -68,6 +69,10 @@ export default function CheckoutPage() {
   const [offerMessage, setOfferMessage] = useState("");
   const [offerError, setOfferError] = useState("");
   const [offerBusy, setOfferBusy] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [paymentRef, setPaymentRef] = useState("");
+  const [paymentError, setPaymentError] = useState("");
 
   const quoteSeq = useRef(0);
   const submittingRef = useRef(false);
@@ -264,7 +269,7 @@ export default function CheckoutPage() {
     PIN_PATTERN.test(form.pincode.trim());
 
   const hasSelectedAddress = selectedAddressId !== null && addresses.some((a) => a.id === selectedAddressId);
-  const canPlace = !submitting && formComplete && serviceable && hasSelectedAddress;
+  const canPlace = !submitting && formComplete && serviceable && hasSelectedAddress && paymentSuccess;
 
   function update(event) {
     const { name, value } = event.target;
@@ -806,11 +811,11 @@ export default function CheckoutPage() {
             if (offersLoading) return null;
             if (eligible.length === 0) return null;
             return (
-              <div className="offer-dropdown-wrap">
-                <label className="offer-dropdown-label" htmlFor="offer-dropdown">Apply Offer</label>
+              <div className="offer-dropdown-wrap offer-dropdown-row">
+                <label className="offer-dropdown-label offer-dropdown-label-row" htmlFor="offer-dropdown">Apply Offer</label>
                 <select
                   id="offer-dropdown"
-                  className="offer-dropdown"
+                  className="offer-dropdown offer-dropdown-select-row"
                   value={appliedOfferCode}
                   disabled={!serviceable || offerBusy}
                   onChange={async (e) => {
@@ -909,6 +914,45 @@ export default function CheckoutPage() {
                 <span>Total</span>
                 <span>{fmt(quote.totalAmount)}</span>
               </div>
+              <div className="checkout-pay-section">
+                <button
+                  type="button"
+                  className="checkout-btn checkout-pay-btn"
+                  disabled={paying || paymentSuccess || !serviceable || !(quote.totalAmount > 0)}
+                  onClick={async () => {
+                    if (paying || paymentSuccess) return;
+                    setPaying(true);
+                    setPaymentError("");
+                    try {
+                      const res = await payCheckout({
+                        pincode: form.pincode,
+                        offer_code: appliedOfferCode || undefined
+                      });
+                      setPaymentSuccess(true);
+                      setPaymentRef(res?.paymentReference || res?.payment_reference || "");
+                    } catch (e) {
+                      const data = e?.data || e?.response?.data;
+                      if (data?.errors) {
+                        const first = Object.values(data.errors)[0];
+                        setPaymentError(Array.isArray(first) ? first[0] : String(first));
+                      } else if (data?.message) {
+                        setPaymentError(data.message);
+                      } else {
+                        setPaymentError("Payment failed. Please try again.");
+                      }
+                      setPaymentSuccess(false);
+                    } finally {
+                      setPaying(false);
+                    }
+                  }}
+                >
+                  {paying ? "PROCESSING..." : paymentSuccess ? "PAID" : `Pay Now ${fmt(quote.totalAmount)}`}
+                </button>
+                <p className="checkout-payment-status">
+                  {paymentSuccess ? `Payment successful. Ref: ${paymentRef || "-"}` : "Complete payment to place your order."}
+                </p>
+                {paymentError && <p className="field-error">{paymentError}</p>}
+              </div>
             </>
           ) : (
             <p className="checkout-summary-note">
@@ -926,7 +970,7 @@ export default function CheckoutPage() {
           </button>
 
           <p className="checkout-secure-note">
-            Please confirm your delivery details before placing the order.
+            {paymentSuccess ? "Payment confirmed. You can place your order." : "Complete payment to place your order."}
           </p>
         </aside>
       </div>
