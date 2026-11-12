@@ -18,6 +18,8 @@ use App\Models\HomePageTeamMember;
 use App\Models\HomePageVision;
 use App\Models\OfferCode;
 use App\Models\Order;
+use App\Models\OrderStatus;
+use App\Models\PaymentStatus;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use Illuminate\Http\JsonResponse;
@@ -222,5 +224,27 @@ class CatalogController extends Controller
         }
 
         return ProductResource::collection($query->get())->response();
+    }
+
+    /**
+     * Public read-only order statuses from DB master (for dynamic display).
+     * Returns all statuses so historical orders can resolve inactive labels.
+     */
+    public function orderStatuses(): JsonResponse
+    {
+        $statuses = OrderStatus::query()->orderBy('sort_order')->orderBy('id')->get();
+
+        return response()->json(['data' => $statuses]);
+    }
+
+    /**
+     * Public read-only payment statuses from DB master (for dynamic display).
+     * Returns all statuses so historical payments can resolve inactive labels.
+     */
+    public function paymentStatuses(): JsonResponse
+    {
+        $statuses = PaymentStatus::query()->orderBy('sort_order')->orderBy('id')->get();
+
+        return response()->json(['data' => $statuses]);
     }
 }

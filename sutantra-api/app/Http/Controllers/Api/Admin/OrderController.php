@@ -24,6 +24,45 @@ class OrderController extends Controller
         'CANCELLED' => [],
     ];
 
+    /**
+     * Compatibility aliases for DB-configured/master codes so existing workflow
+     * logic continues to work for both legacy stored codes and master codes.
+     */
+    private function transitionKey(string $status): string
+    {
+        $s = strtoupper($status);
+        return match ($s) {
+            'ORDER_PLACED' => 'CREATED',
+            'ORDER_CONFIRMED' => 'CONFIRMED',
+            'OUT_FOR_DELIVERY' => 'SHIPPED',
+            default => $s,
+        };
+    }
+
+    /**
+     * Resolve a workflow target code to an assignable master code (DB-driven where possible).
+     */
+    private function resolveTargetCode(string $code): string
+    {
+        $c = strtoupper($code);
+        // Prefer exact active master code
+        if (OrderStatus::query()->where('code', $c)->where('is_active', true)->exists()) {
+            return $c;
+        }
+        $map = [
+            'CONFIRMED' => 'ORDER_CONFIRMED',
+            'SHIPPED' => 'OUT_FOR_DELIVERY',
+            'CREATED' => 'ORDER_PLACED',
+        ];
+        if (isset($map[$c])) {
+            $alt = $map[$c];
+            if (OrderStatus::query()->where('code', $alt)->where('is_active', true)->exists()) {
+                return $alt;
+            }
+        }
+        return $c;
+    }
+
     private const PERIODS = ['daily', 'weekly', 'monthly', 'yearly', 'custom'];
 
     /**
@@ -216,15 +255,32 @@ class OrderController extends Controller
             return $this->orderResponse($order->fresh());
         }
 
-        $allowed = self::ALLOWED_TRANSITIONS[$current] ?? [];
+        $allowed = self::ALLOWED_TRANSITIONS[$this->transitionKey($current)] ?? [];
 
-        if (! in_array($next, $allowed, true)) {
+        // Accept workflow code or its DB-compatible master equivalent
+        $effectiveNext = $next;
+        if (! in_array($effectiveNext, $allowed, true)) {
+            $reverse = ['ORDER_PLACED' => 'CREATED', 'ORDER_CONFIRMED' => 'CONFIRMED', 'OUT_FOR_DELIVERY' => 'SHIPPED'];
+            $effectiveNext = $reverse[$next] ?? $next;
+        }
+        if (! in_array($effectiveNext, $allowed, true)) {
             throw ValidationException::withMessages([
                 'status' => ['This status transition is not allowed.'],
             ]);
         }
 
-        $order->status = $next;
+        $targetCode = $this->resolveTargetCode($next);
+
+        // DB-driven master validation: target must exist in order_status_master and
+        // be active for new assignments (historical records remain unchanged).
+        $statusDef = OrderStatus::query()->where('code', $targetCode)->first();
+        if ($statusDef === null || ! $statusDef->is_active) {
+            throw ValidationException::withMessages([
+                'status' => ['Selected order status is not available for assignment.'],
+            ]);
+        }
+
+        $order->status = $targetCode;
         $order->save();
 
         return $this->orderResponse($order->fresh());
@@ -239,7 +295,23 @@ class OrderController extends Controller
         $order->loadMissing('items');
 
         $data = (new OrderResource($order))->resolve(request());
-        $data['allowedTransitions'] = self::ALLOWED_TRANSITIONS[strtoupper((string) $order->status)] ?? [];
+        $current = strtoupper((string) $order->status);
+        $allowed = self::ALLOWED_TRANSITIONS[$this->transitionKey($current)] ?? [];
+
+        // Map workflow transition codes to DB-configured active master codes.
+        if (! empty($allowed)) {
+            $resolved = [];
+            foreach ($allowed as $c) {
+                $rc = $this->resolveTargetCode($c);
+                $isActive = OrderStatus::query()->where('code', $rc)->where('is_active', true)->exists();
+                if ($isActive) {
+                    $resolved[] = $rc;
+                }
+            }
+            $allowed = array_values(array_unique($resolved));
+        }
+
+        $data['allowedTransitions'] = $allowed;
 
         return response()->json(['data' => $data]);
     }

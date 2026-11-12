@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import AdminLayout from "../components/AdminLayout";
 import ImageField from "../components/ImageField";
 import {
@@ -66,6 +66,12 @@ export default function AdminProductsPage() {
   const [form, setForm] = useState(null);
   const [imageFile, setImageFile] = useState(null);
   const [removeImage, setRemoveImage] = useState(false);
+
+  // Edit-form navigation: scroll to the form and focus Name when Edit is used.
+  const formSectionRef = useRef(null);
+  const nameInputRef = useRef(null);
+  const [editTick, setEditTick] = useState(0);
+  const [highlightEdit, setHighlightEdit] = useState(false);
 
   // List filters. Everything below is applied client-side to the already
   // loaded list, so no API endpoint, parameter or response changes.
@@ -166,6 +172,27 @@ export default function AdminProductsPage() {
     setRemoveImage(false);
   }
 
+  useEffect(() => {
+    if (!form?.id) return;
+    const section = formSectionRef.current;
+    if (!section) return;
+
+    section.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    // Focus after scroll begins so the field is ready and we avoid a jump.
+    const focusTimer = window.setTimeout(() => {
+      nameInputRef.current?.focus({ preventScroll: true });
+    }, 120);
+
+    setHighlightEdit(true);
+    const highlightTimer = window.setTimeout(() => setHighlightEdit(false), 1400);
+
+    return () => {
+      window.clearTimeout(focusTimer);
+      window.clearTimeout(highlightTimer);
+    };
+  }, [form?.id, editTick]);
+
   function openCreate() {
     setError("");
     setNotice("");
@@ -195,6 +222,8 @@ export default function AdminProductsPage() {
       stock_quantity: product.stockQuantity ?? 0,
       imageUrl: product.imageUrl
     });
+    // Trigger scroll/focus/highlight even when editing the same product again.
+    setEditTick((tick) => tick + 1);
   }
 
   function closeForm() {
@@ -353,12 +382,18 @@ export default function AdminProductsPage() {
       </div>
 
       {form && (
-        <form className="admin-panel admin-form" onSubmit={submit}>
+        <form
+          ref={formSectionRef}
+          className={`admin-panel admin-form${highlightEdit ? " admin-form--highlight" : ""}`}
+          onSubmit={submit}
+          aria-label={form.id ? "Edit product form" : "New product form"}
+        >
           <h2>{form.id ? "Edit product" : "New product"}</h2>
           <div className="admin-form-grid">
             <label className="admin-label">
               Name
               <input
+                ref={nameInputRef}
                 type="text"
                 value={form.name}
                 maxLength={150}

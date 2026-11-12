@@ -9,6 +9,12 @@ class OrderStatus extends Model
 {
     use HasFactory;
 
+    /**
+     * The table was renamed from order_statuses to order_status_master.
+     * Explicit mapping preserves existing records/IDs/relationships.
+     */
+    protected $table = 'order_status_master';
+
     protected $fillable = [
         'code',
         'label',

@@ -7,7 +7,7 @@ import {
   OrderValueTrendChart,
   StatusDistributionChart
 } from "../components/admin/OrderCharts";
-import { getAdminOrders, getAdminOrdersAnalytics, getAdminOrderStatuses } from "../services/api";
+import { getAdminOrders, getAdminOrdersAnalytics, getAdminOrderStatuses, getAdminPaymentStatuses } from "../services/api";
 import { formatCount, formatCurrency, statusTone } from "../utils/orderStatus";
 
 const PERIODS = [
@@ -63,13 +63,15 @@ function StatusBadge({ code, label, tone, inactive }) {
   );
 }
 
-function PaymentBadge({ status }) {
+function PaymentBadge({ status, label }) {
   const value = String(status || "UNKNOWN").toUpperCase();
-  const className = ["PENDING", "PAID", "FAILED", "REFUNDED"].includes(value)
-    ? `order-payment-badge ${value.toLowerCase()}`
-    : "admin-badge role-user";
+  let cls = "order-payment-badge";
+  if (value.includes("PAID") || value.includes("SUCCESS")) cls += " paid";
+  else if (value.includes("FAIL")) cls += " failed";
+  else if (value.includes("REFUND")) cls += " refunded";
+  else cls += " pending";
 
-  return <span className={className}>{value}</span>;
+  return <span className={cls}>{label || status || "Unknown"}</span>;
 }
 
 export default function AdminOrdersPage() {
@@ -89,6 +91,7 @@ export default function AdminOrdersPage() {
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [analyticsError, setAnalyticsError] = useState("");
   const [statusDefinitions, setStatusDefinitions] = useState([]);
+  const [paymentStatuses, setPaymentStatuses] = useState([]);
   const [statusError, setStatusError] = useState("");
   const [refreshToken, setRefreshToken] = useState(0);
   const listRef = useRef(null);
@@ -108,9 +111,11 @@ export default function AdminOrdersPage() {
     let ignore = false;
 
     setStatusError("");
-    getAdminOrderStatuses()
-      .then((data) => {
-        if (!ignore) setStatusDefinitions(Array.isArray(data) ? data : []);
+    Promise.all([getAdminOrderStatuses(), getAdminPaymentStatuses().catch(() => [])])
+      .then(([os, ps]) => {
+        if (ignore) return;
+        setStatusDefinitions(Array.isArray(os) ? os : os?.data || []);
+        setPaymentStatuses(Array.isArray(ps) ? ps : ps?.data || []);
       })
       .catch((err) => {
         if (!ignore) setStatusError(err.message || "Unable to load status definitions.");
@@ -252,9 +257,29 @@ export default function AdminOrdersPage() {
     [statusCards]
   );
 
+  const paymentLookup = useMemo(() => {
+    const map = new Map();
+    const list = Array.isArray(paymentStatuses) ? [...paymentStatuses].sort((a,b)=>(a.sort_order??0)-(b.sort_order??0)) : [];
+    list.forEach((s) => {
+      const code = String(s.status_code || s.code || "").toUpperCase();
+      if (code) map.set(code, s);
+    });
+    return map;
+  }, [paymentStatuses]);
+
   function labelFor(code) {
     const key = String(code || "").toUpperCase();
-    return statusLookup.get(key)?.label || code || "Unknown";
+    const item = statusLookup.get(key);
+    if (item?.label) return item.label;
+    // Derive alias from DB masters only (legacy stored code -> configured display name)
+    if (key === "CREATED" && statusLookup.has("ORDER_PLACED")) return statusLookup.get("ORDER_PLACED")?.label || "Order Placed";
+    if (key === "CONFIRMED" && statusLookup.has("ORDER_CONFIRMED")) return statusLookup.get("ORDER_CONFIRMED")?.label || "Order Confirmed";
+    return code || "Unknown";
+  }
+
+  function paymentLabelFor(code) {
+    const key = String(code || "").toUpperCase();
+    return paymentLookup.get(key)?.display_name || paymentLookup.get(key)?.label || code || "Unknown";
   }
 
   function toneFor(code) {
@@ -320,7 +345,10 @@ export default function AdminOrdersPage() {
             Refresh data
           </button>
           <Link className="button button-light" to="/admin/order-statuses">
-            Manage Statuses
+            Manage Order Statuses
+          </Link>
+          <Link className="button button-light" to="/admin/payment-statuses">
+            Manage Payment Statuses
           </Link>
         </div>
       }
@@ -713,7 +741,7 @@ export default function AdminOrdersPage() {
                           <td>{formatCount(order.itemsCount ?? order.items?.length ?? 0)}</td>
                           <td>{formatCurrency(order.totalAmount || order.total_amount, 2)}</td>
                           <td>
-                            <PaymentBadge status={order.paymentStatus || order.payment_status} />
+                            <PaymentBadge status={order.paymentStatus || order.payment_status} label={paymentLabelFor(order.paymentStatus || order.payment_status)} />
                           </td>
                           <td>
                             <StatusBadge

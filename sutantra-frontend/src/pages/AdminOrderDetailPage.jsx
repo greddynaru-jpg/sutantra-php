@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import AdminLayout from "../components/AdminLayout";
-import { getAdminOrder, getAdminOrderStatuses, updateAdminOrderStatus } from "../services/api";
+import { getAdminOrder, getAdminOrderStatuses, getAdminPaymentStatuses, updateAdminOrderStatus } from "../services/api";
 
 function fmt(value) {
   return `₹${Number(value || 0).toFixed(2)}`;
@@ -32,23 +32,49 @@ export default function AdminOrderDetailPage() {
   const [updating, setUpdating] = useState(false);
   const [updateMsg, setUpdateMsg] = useState("");
   const [statuses, setStatuses] = useState([]);
+  const [paymentStatuses, setPaymentStatuses] = useState([]);
   const [statusError, setStatusError] = useState("");
 
   const statusLookup = useMemo(() => {
     const map = new Map();
-
-    statuses.forEach((status) => {
+    const list = Array.isArray(statuses) ? [...statuses].sort((a,b)=>(a.sort_order??0)-(b.sort_order??0)) : [];
+    list.forEach((status) => {
       const code = String(status.code || "").toUpperCase();
       if (code) map.set(code, status);
     });
-
     return map;
   }, [statuses]);
+
+  const paymentLookup = useMemo(() => {
+    const map = new Map();
+    const list = Array.isArray(paymentStatuses) ? [...paymentStatuses].sort((a,b)=>(a.sort_order??0)-(b.sort_order??0)) : [];
+    list.forEach((status) => {
+      const code = String(status.status_code || status.code || "").toUpperCase();
+      if (code) map.set(code, status);
+    });
+    return map;
+  }, [paymentStatuses]);
 
   function labelFor(code) {
     const key = String(code || "").toUpperCase();
     const status = statusLookup.get(key);
-    return status?.label || code || "Unknown";
+    if (status?.label || status?.display_name) return status.label || status.display_name;
+    // Derive alias from DB masters only (legacy stored code -> configured display name)
+    if (key === "CREATED" && statusLookup.has("ORDER_PLACED")) {
+      const s = statusLookup.get("ORDER_PLACED");
+      return s?.label || s?.display_name || "Order Placed";
+    }
+    if (key === "CONFIRMED" && statusLookup.has("ORDER_CONFIRMED")) {
+      const s = statusLookup.get("ORDER_CONFIRMED");
+      return s?.label || s?.display_name || "Order Confirmed";
+    }
+    return code || "Unknown";
+  }
+
+  function paymentLabelFor(code) {
+    const key = String(code || "").toUpperCase();
+    const status = paymentLookup.get(key);
+    return status?.display_name || status?.label || code || "Unknown";
   }
 
   function load() {
@@ -68,9 +94,11 @@ export default function AdminOrderDetailPage() {
     let ignore = false;
 
     setStatusError("");
-    getAdminOrderStatuses()
-      .then((data) => {
-        if (!ignore) setStatuses(Array.isArray(data) ? data : []);
+    Promise.all([getAdminOrderStatuses(), getAdminPaymentStatuses().catch(() => [])])
+      .then(([os, ps]) => {
+        if (ignore) return;
+        setStatuses(Array.isArray(os) ? os : os?.data || []);
+        setPaymentStatuses(Array.isArray(ps) ? ps : ps?.data || []);
       })
       .catch((err) => {
         if (!ignore) setStatusError(err.message || "Unable to load status definitions.");
@@ -152,7 +180,7 @@ export default function AdminOrderDetailPage() {
                 <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Date</span><span>{formatDate(order.createdAt || order.created_at)}</span></div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Customer</span><span>{order.customerName || order.customer_name}</span></div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Phone</span><span>{order.customerPhone || order.customer_phone}</span></div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Payment Status</span><span>{order.paymentStatus || order.payment_status}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Payment Status</span><span>{paymentLabelFor(order.paymentStatus || order.payment_status)}</span></div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Status</span><span>{labelFor(current)}</span></div>
               </div>
             </div>

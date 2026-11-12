@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Brand from "../components/Brand";
-import { getOrder } from "../services/api";
+import { getCatalogOrderStatuses, getCatalogPaymentStatuses, getOrder } from "../services/api";
 
 function fmt(value) {
   return `₹${Number(value || 0).toFixed(2)}`;
@@ -23,35 +23,25 @@ function formatDate(value) {
   }
 }
 
-function StatusBadge({ status }) {
-  const s = (status || "").toUpperCase();
-  const map = {
-    CREATED: "Placed",
-    PLACED: "Placed",
-    CONFIRMED: "Confirmed",
-    PROCESSING: "Processing",
-    SHIPPED: "Shipped",
-    DELIVERED: "Delivered",
-    CANCELLED: "Cancelled"
-  };
-  const label = map[s] || status || "Unknown";
+function StatusBadge({ status, label }) {
+  const s = String(status || "").toUpperCase();
   let cls = "order-status-badge";
-  if (s === "DELIVERED") cls += " delivered";
-  else if (s === "SHIPPED") cls += " shipped";
-  else if (s === "CONFIRMED" || s === "PROCESSING") cls += " processing";
-  else if (s === "CANCELLED") cls += " cancelled";
+  if (s.includes("DELIVER")) cls += " delivered";
+  else if (s.includes("SHIP") || s.includes("OUT_FOR")) cls += " shipped";
+  else if (s.includes("CONFIRM") || s.includes("PROCESS") || s.includes("PREPAR") || s.includes("READY")) cls += " processing";
+  else if (s.includes("CANCEL")) cls += " cancelled";
   else cls += " placed";
-  return <span className={cls}>{label}</span>;
+  return <span className={cls}>{label || status || "Unknown"}</span>;
 }
 
-function PaymentBadge({ status }) {
-  const s = (status || "").toUpperCase();
+function PaymentBadge({ status, label }) {
+  const s = String(status || "").toUpperCase();
   let cls = "order-payment-badge";
-  if (s === "PAID") cls += " paid";
-  else if (s === "FAILED") cls += " failed";
-  else if (s === "REFUNDED") cls += " refunded";
+  if (s.includes("PAID") || s.includes("SUCCESS")) cls += " paid";
+  else if (s.includes("FAIL")) cls += " failed";
+  else if (s.includes("REFUND")) cls += " refunded";
   else cls += " pending";
-  return <span className={cls}>{status || "PENDING"}</span>;
+  return <span className={cls}>{label || status || "Pending"}</span>;
 }
 
 export default function OrderDetailPage() {
@@ -60,14 +50,22 @@ export default function OrderDetailPage() {
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [orderStatuses, setOrderStatuses] = useState([]);
+  const [paymentStatuses, setPaymentStatuses] = useState([]);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
-    getOrder(id)
-      .then((data) => {
+    Promise.all([
+      getOrder(id),
+      getCatalogOrderStatuses().catch(() => []),
+      getCatalogPaymentStatuses().catch(() => [])
+    ])
+      .then(([data, os, ps]) => {
         if (!active) return;
         setOrder(data);
+        setOrderStatuses(Array.isArray(os) ? os : os?.data || []);
+        setPaymentStatuses(Array.isArray(ps) ? ps : ps?.data || []);
       })
       .catch((err) => {
         if (active) setError(err.message || "Unable to load order details.");
@@ -79,6 +77,36 @@ export default function OrderDetailPage() {
       active = false;
     };
   }, [id]);
+
+  const orderLabel = useMemo(() => {
+    const m = new Map();
+    const aliases = new Map();
+    const list = Array.isArray(orderStatuses) ? [...orderStatuses].sort((a,b)=>(a.sort_order??0)-(b.sort_order??0)) : [];
+    list.forEach((s) => {
+      const code = String(s.code || "").toUpperCase();
+      const label = s.label || s.display_name || s.code;
+      if (code) m.set(code, label);
+    });
+    if (m.has("ORDER_PLACED") && !m.has("CREATED")) aliases.set("CREATED", m.get("ORDER_PLACED"));
+    if (m.has("ORDER_CONFIRMED") && !m.has("CONFIRMED")) aliases.set("CONFIRMED", m.get("ORDER_CONFIRMED"));
+    return (code) => {
+      const k = String(code || "").toUpperCase();
+      if (m.has(k)) return m.get(k);
+      if (aliases.has(k)) return aliases.get(k);
+      return code || "Unknown";
+    };
+  }, [orderStatuses]);
+
+  const paymentLabel = useMemo(() => {
+    const m = new Map();
+    const list = Array.isArray(paymentStatuses) ? [...paymentStatuses].sort((a,b)=>(a.sort_order??0)-(b.sort_order??0)) : [];
+    list.forEach((s) => {
+      const code = String(s.status_code || s.code || "").toUpperCase();
+      const label = s.display_name || s.label || s.status_code || s.code;
+      if (code) m.set(code, label);
+    });
+    return (code) => m.get(String(code || "").toUpperCase()) || code || "Pending";
+  }, [paymentStatuses]);
 
   return (
     <main className="orders-page">
@@ -103,8 +131,8 @@ export default function OrderDetailPage() {
           </div>
           {order && (
             <div className="order-detail-badges">
-              <StatusBadge status={order.status} />
-              <PaymentBadge status={order.paymentStatus || order.payment_status} />
+              <StatusBadge status={order.status} label={orderLabel(order.status)} />
+              <PaymentBadge status={order.paymentStatus || order.payment_status} label={paymentLabel(order.paymentStatus || order.payment_status)} />
             </div>
           )}
         </div>
@@ -184,11 +212,11 @@ export default function OrderDetailPage() {
                   </div>
                   <div>
                     <dt>Order Status</dt>
-                    <dd><StatusBadge status={order.status} /></dd>
+                    <dd><StatusBadge status={order.status} label={orderLabel(order.status)} /></dd>
                   </div>
                   <div>
                     <dt>Payment Status</dt>
-                    <dd><PaymentBadge status={order.paymentStatus || order.payment_status} /></dd>
+                    <dd><PaymentBadge status={order.paymentStatus || order.payment_status} label={paymentLabel(order.paymentStatus || order.payment_status)} /></dd>
                   </div>
                   {(order.paymentMethod || order.payment_method) && (
                     <div>

@@ -9,6 +9,7 @@ use App\Models\CartItem;
 use App\Models\DeliveryPincode;
 use App\Models\OfferCode;
 use App\Models\Order;
+use App\Models\OrderStatus;
 use App\Models\Payment;
 use App\Models\Product;
 use Illuminate\Http\JsonResponse;
@@ -120,10 +121,14 @@ class CheckoutController extends Controller
     /**
      * POST /api/orders
      *
-     * Revalidate everything and create the order inside one transaction. The
-     * cart row is locked and its items are cleared in the same transaction,
-     * so simultaneous or repeated submissions cannot create a second order.
-     * Offers are revalidated server-side at submission time.
+     * Revalidate everything and place the order inside one transaction. The cart
+     * row is locked and its items are cleared in the same transaction, so
+     * simultaneous or repeated submissions cannot create a second order.
+     *
+     * If a paid dummy-payment placeholder exists for this checkout (created by
+     * /api/checkout/pay), it is finalized in place into the real order so the
+     * checkout produces exactly one order record. Otherwise a new PENDING order
+     * is created (legacy/direct flow).
      */
     public function store(Request $request): JsonResponse
     {
@@ -135,6 +140,7 @@ class CheckoutController extends Controller
             'state' => ['required', 'string', 'max:100'],
             'pincode' => ['required', 'digits:6'],
             'offer_code' => ['nullable', 'string', 'max:50'],
+            'payment_reference' => ['nullable', 'string', 'max:100'],
         ], [
             'pincode.required' => 'Please enter your delivery PIN code.',
             'pincode.digits' => 'Please enter a valid 6-digit PIN code.',
@@ -239,10 +245,87 @@ class CheckoutController extends Controller
                 $totalAmount = 0.0;
             }
 
+            // Finalize the paid dummy placeholder (if any) into the real order so
+            // that pay+place yields exactly one order record.
+            $placeholderQuery = Order::query()
+                ->where('user_id', $request->user()->id)
+                ->where('delivery_address', '')
+                ->whereDoesntHave('items')
+                ->lockForUpdate()
+                ->latest('id');
+
+            if (!empty($data['payment_reference'])) {
+                $placeholderQuery->whereIn('id', function ($q) use ($data): void {
+                    $q->from('payments')
+                        ->select('order_id')
+                        ->where('gateway', 'DUMMY')
+                        ->where('payment_reference', $data['payment_reference'])
+                        ->where(function ($q2): void {
+                            $q2->where('status', Payment::STATUS_PAID)
+                                ->orWhere('payment_status', Payment::STATUS_PAID);
+                        });
+                });
+            } else {
+                $placeholderQuery->whereIn('id', function ($q): void {
+                    $q->from('payments')
+                        ->select('order_id')
+                        ->where('gateway', 'DUMMY')
+                        ->where(function ($q2): void {
+                            $q2->where('status', Payment::STATUS_PAID)
+                                ->orWhere('payment_status', Payment::STATUS_PAID);
+                        });
+                });
+            }
+
+            $placeholder = $placeholderQuery->first();
+
+            $initialStatusCode = $this->initialOrderStatusCode();
+
+            if ($placeholder !== null) {
+                $placeholder->update([
+                    'status' => $initialStatusCode,
+                    'payment_status' => Order::PAYMENT_PAID,
+                    'subtotal' => $pricing['subtotal'],
+                    'discount_amount' => $discountAmount,
+                    'delivery_charge' => $delivery,
+                    'tax_amount' => 0,
+                    'total_amount' => $totalAmount,
+                    'currency' => 'INR',
+                    'customer_name' => $data['name'],
+                    'customer_phone' => $data['phone'],
+                    'customer_email' => $request->user()->email,
+                    'delivery_address' => $this->addressSnapshot($data),
+                ]);
+
+                // Keep the payment amount in sync with the authoritative total.
+                Payment::query()
+                    ->where('order_id', $placeholder->id)
+                    ->where('gateway', 'DUMMY')
+                    ->update(['amount' => $totalAmount]);
+
+                foreach ($pricing['lines'] as $line) {
+                    $placeholder->items()->create($line);
+                    $product = $products->get($line['product_id']);
+                    if ($product !== null) {
+                        $newStock = (int) $product->stock_quantity - (int) $line['quantity'];
+                        if ($newStock < 0) {
+                            $newStock = 0;
+                        }
+                        $product->stock_quantity = $newStock;
+                        $product->save();
+                    }
+                }
+
+                CartItem::query()->where('cart_id', $cart->id)->delete();
+
+                return $placeholder->load('items');
+            }
+
+            // Legacy/direct flow (no prior dummy payment): create a PENDING order.
             $order = Order::create([
                 'order_number' => $this->newOrderNumber(),
                 'user_id' => $request->user()->id,
-                'status' => Order::STATUS_CREATED,
+                'status' => $initialStatusCode,
                 'payment_status' => Order::PAYMENT_PENDING,
                 'subtotal' => $pricing['subtotal'],
                 'discount_amount' => $discountAmount,
@@ -281,7 +364,9 @@ class CheckoutController extends Controller
 
     /**
      * POST /api/checkout/pay
-     * Dummy payment flow: validate cart/amount, create/update payment as PAID.
+     * Dummy payment flow: validate cart/amount and record a PAID dummy payment.
+     * Idempotent: reuses an existing unfinalized paid placeholder for this user
+     * so repeated submissions/clicks do not create duplicate orders.
      */
     public function pay(Request $request): JsonResponse
     {
@@ -294,62 +379,93 @@ class CheckoutController extends Controller
         ]);
 
         $user = $request->user();
-        $cart = $this->activeCart($request);
 
-        if ($cart === null || $cart->items()->count() === 0) {
-            throw ValidationException::withMessages([
-                'cart' => ['Your cart is empty.'],
-            ]);
-        }
+        $payment = DB::transaction(function () use ($request, $user, $data) {
+            $cart = Cart::query()
+                ->where('user_id', $user->id)
+                ->where('status', Cart::STATUS_ACTIVE)
+                ->lockForUpdate()
+                ->first();
 
-        $pincode = $this->serviceablePincode($data['pincode']);
-        if ($pincode === null) {
-            throw ValidationException::withMessages([
-                'pincode' => [self::UNSERVICEABLE_MESSAGE],
-            ]);
-        }
-
-        $cart->load('items.product');
-        $pricing = $this->priceItems($cart->items);
-        $delivery = round((float) $pincode->delivery_charge, 2);
-
-        $discountAmount = 0.0;
-        $appliedOffer = null;
-        $offerError = null;
-        if (!empty($data['offer_code'])) {
-            [$appliedOffer, $discountAmount, $offerError] = $this->evaluateOffer(
-                $data['offer_code'],
-                $pricing['subtotal'],
-                $user->id
-            );
-            if ($offerError !== null) {
+            if ($cart === null || CartItem::query()->where('cart_id', $cart->id)->count() === 0) {
                 throw ValidationException::withMessages([
-                    'offer_code' => [$offerError],
+                    'cart' => ['Your cart is empty.'],
                 ]);
             }
-        }
 
-        $totalAmount = round($pricing['subtotal'] - $discountAmount + $delivery, 2);
-        if ($totalAmount < 0) {
-            $totalAmount = 0.0;
-        }
-        if ($totalAmount <= 0) {
-            throw ValidationException::withMessages([
-                'amount' => ['Payable amount must be greater than zero.'],
-            ]);
-        }
+            // Idempotency: if a paid dummy placeholder already exists for this
+            // checkout (not yet finalized into a real order), reuse it.
+            $existing = Order::query()
+                ->where('user_id', $user->id)
+                ->where('delivery_address', '')
+                ->whereDoesntHave('items')
+                ->whereIn('id', function ($q): void {
+                    $q->from('payments')
+                        ->select('order_id')
+                        ->where('gateway', 'DUMMY')
+                        ->where(function ($q2): void {
+                            $q2->where('status', Payment::STATUS_PAID)
+                                ->orWhere('payment_status', Payment::STATUS_PAID);
+                        });
+                })
+                ->lockForUpdate()
+                ->latest('id')
+                ->first();
 
-        $paymentReference = 'DUM-'.Str::upper(Str::random(12));
+            if ($existing !== null) {
+                $existingPayment = Payment::query()
+                    ->where('order_id', $existing->id)
+                    ->where('gateway', 'DUMMY')
+                    ->lockForUpdate()
+                    ->first();
+                if ($existingPayment !== null) {
+                    return $existingPayment;
+                }
+            }
 
-        $payment = DB::transaction(function () use ($user, $totalAmount, $paymentReference) {
-            // Try to find existing pending payment for this user's cart context via most recent order? 
-            // Payment is associated to order_id; without order yet, create a placeholder flow not possible by FK.
-            // Create a temporary order not needed - use payment with order_id tied to a new pending order? 
-            // Reuse schema: payments.order_id unique FK to orders. Create a minimal pending order first.
+            $pincode = $this->serviceablePincode($data['pincode']);
+            if ($pincode === null) {
+                throw ValidationException::withMessages([
+                    'pincode' => [self::UNSERVICEABLE_MESSAGE],
+                ]);
+            }
+
+            $cart->load('items.product');
+            $pricing = $this->priceItems($cart->items);
+            $delivery = round((float) $pincode->delivery_charge, 2);
+
+            $discountAmount = 0.0;
+            if (!empty($data['offer_code'])) {
+                [$appliedOffer, $discountAmount, $offerError] = $this->evaluateOffer(
+                    $data['offer_code'],
+                    $pricing['subtotal'],
+                    $user->id
+                );
+                if ($offerError !== null) {
+                    throw ValidationException::withMessages([
+                        'offer_code' => [$offerError],
+                    ]);
+                }
+            }
+
+            $totalAmount = round($pricing['subtotal'] - $discountAmount + $delivery, 2);
+            if ($totalAmount < 0) {
+                $totalAmount = 0.0;
+            }
+            if ($totalAmount <= 0) {
+                throw ValidationException::withMessages([
+                    'amount' => ['Payable amount must be greater than zero.'],
+                ]);
+            }
+
+            $paymentReference = 'DUM-'.Str::upper(Str::random(12));
+
+            $initialStatusCode = $this->initialOrderStatusCode();
+
             $order = Order::create([
                 'order_number' => $this->newOrderNumber(),
                 'user_id' => $user->id,
-                'status' => Order::STATUS_CREATED,
+                'status' => $initialStatusCode,
                 'payment_status' => Order::PAYMENT_PENDING,
                 'subtotal' => 0,
                 'discount_amount' => 0,
@@ -363,21 +479,19 @@ class CheckoutController extends Controller
                 'delivery_address' => '',
             ]);
 
-            $payment = Payment::updateOrCreate(
-                ['order_id' => $order->id],
-                [
-                    'gateway' => 'DUMMY',
-                    'payment_method' => 'DUMMY',
-                    'payment_reference' => $paymentReference,
-                    'gateway_order_id' => $order->order_number,
-                    'gateway_payment_id' => $paymentReference,
-                    'amount' => $totalAmount,
-                    'currency' => 'INR',
-                    'status' => Payment::STATUS_PAID,
-                    'payment_status' => Payment::STATUS_PAID,
-                    'provider_reference' => $paymentReference,
-                ]
-            );
+            $payment = Payment::create([
+                'order_id' => $order->id,
+                'gateway' => 'DUMMY',
+                'payment_method' => 'DUMMY',
+                'payment_reference' => $paymentReference,
+                'gateway_order_id' => $order->order_number,
+                'gateway_payment_id' => $paymentReference,
+                'amount' => $totalAmount,
+                'currency' => 'INR',
+                'status' => Payment::STATUS_PAID,
+                'payment_status' => Payment::STATUS_PAID,
+                'provider_reference' => $paymentReference,
+            ]);
 
             $order->update(['payment_status' => Order::PAYMENT_PAID, 'total_amount' => $totalAmount]);
 
@@ -387,7 +501,7 @@ class CheckoutController extends Controller
         return response()->json([
             'status' => 'PAID',
             'payment_status' => 'PAID',
-            'paymentReference' => $payment->payment_reference ?? $paymentReference,
+            'paymentReference' => $payment->payment_reference,
             'amount' => (float) $payment->amount,
             'currency' => $payment->currency,
             'message' => 'Payment successful.',
@@ -400,6 +514,25 @@ class CheckoutController extends Controller
             ->where('user_id', $request->user()->id)
             ->where('status', Cart::STATUS_ACTIVE)
             ->first();
+    }
+
+    /**
+     * Resolve the initial order status from the database master (single source of truth).
+     * Uses the lowest sort_order active status; falls back to existing convention only if unavailable.
+     */
+    private function initialOrderStatusCode(): string
+    {
+        $status = OrderStatus::query()
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->first();
+
+        if ($status !== null && ! empty($status->code)) {
+            return strtoupper((string) $status->code);
+        }
+
+        return Order::STATUS_CREATED;
     }
 
     private function serviceablePincode(string $pincode): ?DeliveryPincode

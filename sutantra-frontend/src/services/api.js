@@ -178,6 +178,15 @@ export function getProductsByCategory(categoryId) {
   return request(`/api/catalog/products?category_id=${encodeURIComponent(categoryId)}`);
 }
 
+// Public read-only status masters (DB-driven display)
+export function getCatalogOrderStatuses() {
+  return request("/api/catalog/order-statuses");
+}
+
+export function getCatalogPaymentStatuses() {
+  return request("/api/catalog/payment-statuses");
+}
+
 // ── Cart (planned phase; endpoints land with the orders/phase work) ─
 
 export function getCart() {
@@ -279,9 +288,23 @@ export function updateAdminOrderStatus(id, status) {
   });
 }
 
-// Admin Order Statuses
-export function getAdminOrderStatuses() {
-  return request("/api/admin/order-statuses");
+// Admin Order Statuses (DB-driven master: order_status_master)
+function statusQuery(params = {}) {
+  const query = new URLSearchParams();
+  if (params.search) query.set("search", params.search);
+  if (params.active !== undefined && params.active !== null && params.active !== "") query.set("active", params.active);
+  if (params.page) query.set("page", params.page);
+  if (params.perPage) query.set("per_page", params.perPage);
+  return query.toString();
+}
+
+export function getAdminOrderStatuses(params = {}) {
+  const qs = statusQuery(params);
+  return request(`/api/admin/order-statuses${qs ? `?${qs}` : ""}`, { unwrapData: !params.perPage });
+}
+
+export function getAdminOrderStatus(id) {
+  return request(`/api/admin/order-statuses/${id}`);
 }
 
 export function createAdminOrderStatus(fields) {
@@ -298,8 +321,46 @@ export function updateAdminOrderStatusDefinition(id, fields) {
   });
 }
 
+export function setAdminOrderStatusActive(id, isActive) {
+  return request(`/api/admin/order-statuses/${id}/active`, {
+    method: "PATCH",
+    body: JSON.stringify({ is_active: !!isActive })
+  });
+}
+
 export function deleteAdminOrderStatus(id) {
   return request(`/api/admin/order-statuses/${id}`, { method: "DELETE" });
+}
+
+// Admin Payment Statuses (DB-driven master: payment_status_master)
+export function getAdminPaymentStatuses(params = {}) {
+  const qs = statusQuery(params);
+  return request(`/api/admin/payment-statuses${qs ? `?${qs}` : ""}`, { unwrapData: !params.perPage });
+}
+
+export function getAdminPaymentStatus(id) {
+  return request(`/api/admin/payment-statuses/${id}`);
+}
+
+export function createAdminPaymentStatus(fields) {
+  return request("/api/admin/payment-statuses", {
+    method: "POST",
+    body: JSON.stringify(fields)
+  });
+}
+
+export function updateAdminPaymentStatus(id, fields) {
+  return request(`/api/admin/payment-statuses/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(fields)
+  });
+}
+
+export function setAdminPaymentStatusActive(id, isActive) {
+  return request(`/api/admin/payment-statuses/${id}/active`, {
+    method: "PATCH",
+    body: JSON.stringify({ is_active: !!isActive })
+  });
 }
 
 // ── User addresses ────────────────────────────────────────────────

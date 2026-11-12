@@ -8,6 +8,7 @@ import AdminOffersPage from "./pages/AdminOffersPage";
 import AdminOrderDetailPage from "./pages/AdminOrderDetailPage";
 import AdminOrdersPage from "./pages/AdminOrdersPage";
 import AdminOrderStatusPage from "./pages/AdminOrderStatusPage";
+import AdminPaymentStatusPage from "./pages/AdminPaymentStatusPage";
 import AdminPoliciesPage from "./pages/AdminPoliciesPage";
 import AdminProductsPage from "./pages/AdminProductsPage";
 import AdminUsersPage from "./pages/AdminUsersPage";
@@ -87,6 +88,10 @@ export default function App() {
       <Route
         path="/admin/order-statuses"
         element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminOrderStatusPage /></RequireAuth>}
+      />
+      <Route
+        path="/admin/payment-statuses"
+        element={<RequireAuth roles={["ADMIN", "SUPER_ADMIN"]}><AdminPaymentStatusPage /></RequireAuth>}
       />
       {/* Banners, vision and policies are SUPER_ADMIN-only; they are managed
           from Home Page Administration. Enforcement happens on the API too. */}

@@ -22,6 +22,11 @@ export default function AdminDashboardPage({ title = "Admin Dashboard" }) {
       title: "Home Page",
       note: "Logo, banners, directors’ vision, policies and our team."
     });
+    modules.splice(6, 0, {
+      to: "/admin/payment-statuses",
+      title: "Payment Status Management",
+      note: "Configure payment status definitions."
+    });
   }
 
   return (

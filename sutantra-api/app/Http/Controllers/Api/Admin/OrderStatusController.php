@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Order;
 use App\Models\OrderStatus;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,21 +11,55 @@ use Illuminate\Validation\ValidationException;
 
 class OrderStatusController extends Controller
 {
-    public function index(): JsonResponse
+    /**
+     * GET /api/admin/order-statuses
+     * Dynamic list from order_status_master (single source of truth).
+     */
+    public function index(Request $request): JsonResponse
     {
-        $statuses = OrderStatus::query()->orderBy('sort_order')->get();
+        $query = OrderStatus::query();
 
-        return response()->json($statuses);
+        if ($request->filled('search')) {
+            $search = trim((string) $request->input('search'));
+            $query->where(function ($q) use ($search) {
+                $q->where('code', 'like', "%{$search}%")
+                    ->orWhere('label', 'like', "%{$search}%");
+            });
+        }
+
+        if ($request->filled('active')) {
+            $active = filter_var($request->input('active'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($active !== null) {
+                $query->where('is_active', $active);
+            }
+        }
+
+        $query->orderBy('sort_order')->orderBy('id');
+
+        // Keep backward-compatible default (full list) while supporting pagination when requested.
+        if ($request->filled('per_page')) {
+            $perPage = max(1, min(100, (int) $request->input('per_page', 15)));
+            return response()->json($query->paginate($perPage)->withQueryString());
+        }
+
+        return response()->json($query->get());
+    }
+
+    public function show(OrderStatus $orderStatus): JsonResponse
+    {
+        return response()->json($orderStatus);
     }
 
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'code' => ['required', 'string', 'max:30', 'alpha_dash', Rule::unique('order_statuses', 'code')],
+            'code' => ['required', 'string', 'max:30', 'regex:/^[A-Z0-9_]+$/', Rule::unique('order_status_master', 'code')],
             'label' => ['required', 'string', 'max:100'],
             'description' => ['nullable', 'string', 'max:255'],
             'sort_order' => ['nullable', 'integer'],
             'is_active' => ['nullable', 'boolean'],
+        ], [
+            'code.regex' => 'Status code may contain only uppercase letters, numbers and underscores.',
         ]);
 
         $status = OrderStatus::create([
@@ -34,7 +67,7 @@ class OrderStatusController extends Controller
             'label' => $data['label'],
             'description' => $data['description'] ?? null,
             'sort_order' => $data['sort_order'] ?? 0,
-            'is_active' => $data['is_active'] ?? true,
+            'is_active' => array_key_exists('is_active', $data) ? (bool) $data['is_active'] : true,
             'is_protected' => false,
         ]);
 
@@ -50,47 +83,58 @@ class OrderStatusController extends Controller
             'is_active' => ['nullable', 'boolean'],
         ]);
 
-        if (isset($data['label'])) {
+        // Status Code is read-only after creation (not accepted/changed).
+        if (array_key_exists('label', $data)) {
             $orderStatus->label = $data['label'];
         }
         if (array_key_exists('description', $data)) {
             $orderStatus->description = $data['description'];
         }
-        if (isset($data['sort_order'])) {
-            $orderStatus->sort_order = $data['sort_order'];
+        if (array_key_exists('sort_order', $data) && $data['sort_order'] !== null) {
+            $orderStatus->sort_order = (int) $data['sort_order'];
         }
-        if (isset($data['is_active'])) {
-            if ($orderStatus->is_protected && ! $data['is_active']) {
+        if (array_key_exists('is_active', $data)) {
+            if ($orderStatus->is_protected && ! (bool) $data['is_active']) {
                 throw ValidationException::withMessages([
                     'is_active' => ['Protected workflow statuses cannot be deactivated.'],
                 ]);
             }
-            $orderStatus->is_active = $data['is_active'];
+            $orderStatus->is_active = (bool) $data['is_active'];
         }
 
         $orderStatus->save();
 
-        return response()->json($orderStatus);
+        return response()->json($orderStatus->fresh());
     }
 
+    /**
+     * Activate or deactivate without deleting master records.
+     */
+    public function setActive(Request $request, OrderStatus $orderStatus): JsonResponse
+    {
+        $data = $request->validate([
+            'is_active' => ['required', 'boolean'],
+        ]);
+
+        if ($orderStatus->is_protected && ! (bool) $data['is_active']) {
+            throw ValidationException::withMessages([
+                'is_active' => ['Protected workflow statuses cannot be deactivated.'],
+            ]);
+        }
+
+        $orderStatus->is_active = (bool) $data['is_active'];
+        $orderStatus->save();
+
+        return response()->json($orderStatus->fresh());
+    }
+
+    /**
+     * Physical deletion of master records is not permitted (preserves history/IDs).
+     */
     public function destroy(OrderStatus $orderStatus): JsonResponse
     {
-        if ($orderStatus->is_protected) {
-            throw ValidationException::withMessages([
-                'status' => ['Protected workflow statuses cannot be deleted.'],
-            ]);
-        }
-
-        $inUse = Order::query()->where('status', $orderStatus->code)->exists();
-
-        if ($inUse) {
-            throw ValidationException::withMessages([
-                'status' => ['This status is used by existing orders and cannot be deleted. Deactivate it instead.'],
-            ]);
-        }
-
-        $orderStatus->delete();
-
-        return response()->json(['success' => true]);
+        throw ValidationException::withMessages([
+            'status' => ['Master status records cannot be deleted. Deactivate the status instead.'],
+        ]);
     }
 }

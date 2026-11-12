@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\Admin\HomePageVisionController;
 use App\Http\Controllers\Api\Admin\OfferCodeController;
 use App\Http\Controllers\Api\Admin\OrderController as AdminOrderController;
 use App\Http\Controllers\Api\Admin\OrderStatusController as AdminOrderStatusController;
+use App\Http\Controllers\Api\Admin\PaymentStatusController as AdminPaymentStatusController;
 use App\Http\Controllers\Api\Admin\ProductCategoryController;
 use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
 use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
@@ -54,6 +55,9 @@ Route::prefix('catalog')->group(function () {
     Route::get('/policies/{slug}', [CatalogController::class, 'policy']);
     Route::get('/offers', [CatalogController::class, 'offers']);
     Route::get('/products', [CatalogController::class, 'products']);
+    // Read-only status masters for dynamic display (no modification APIs exposed).
+    Route::get('/order-statuses', [CatalogController::class, 'orderStatuses']);
+    Route::get('/payment-statuses', [CatalogController::class, 'paymentStatuses']);
 });
 
 // Authentication (password-only; identifier is email OR phone)
@@ -120,11 +124,20 @@ Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
         Route::patch('/offers/{offer}/activate', [OfferCodeController::class, 'activate']);
         Route::patch('/offers/{offer}/deactivate', [OfferCodeController::class, 'deactivate']);
 
-        // Order status definitions used by the order workflow.
+        // Order status definitions used by the order workflow (DB-driven master).
         Route::get('/order-statuses', [AdminOrderStatusController::class, 'index']);
         Route::post('/order-statuses', [AdminOrderStatusController::class, 'store']);
+        Route::get('/order-statuses/{orderStatus}', [AdminOrderStatusController::class, 'show']);
         Route::match(['put', 'patch'], '/order-statuses/{orderStatus}', [AdminOrderStatusController::class, 'update']);
+        Route::patch('/order-statuses/{orderStatus}/active', [AdminOrderStatusController::class, 'setActive']);
         Route::delete('/order-statuses/{orderStatus}', [AdminOrderStatusController::class, 'destroy']);
+
+        // Payment status definitions (DB-driven master, independent of order status).
+        Route::get('/payment-statuses', [AdminPaymentStatusController::class, 'index']);
+        Route::post('/payment-statuses', [AdminPaymentStatusController::class, 'store']);
+        Route::get('/payment-statuses/{paymentStatus}', [AdminPaymentStatusController::class, 'show']);
+        Route::match(['put', 'patch'], '/payment-statuses/{paymentStatus}', [AdminPaymentStatusController::class, 'update']);
+        Route::patch('/payment-statuses/{paymentStatus}/active', [AdminPaymentStatusController::class, 'setActive']);
 
         // Order management: the analytics route must precede /orders/{order}
         // so "analytics" is never treated as an order id.

@@ -58,13 +58,11 @@ export default function CheckoutPage() {
   });
   const [quote, setQuote] = useState(null);
   const [pinState, setPinState] = useState("idle");
-  const [pinMessage, setPinMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [order, setOrder] = useState(null);
   const [orderError, setOrderError] = useState("");
   const [offers, setOffers] = useState([]);
   const [offersLoading, setOffersLoading] = useState(false);
-  const [offerInput, setOfferInput] = useState("");
   const [appliedOfferCode, setAppliedOfferCode] = useState("");
   const [offerMessage, setOfferMessage] = useState("");
   const [offerError, setOfferError] = useState("");
@@ -179,7 +177,6 @@ export default function CheckoutPage() {
 
     const pincode = form.pincode.trim();
     setQuote(null);
-    setPinMessage("");
 
     if (!cartHasItems) {
       setPinState("idle");
@@ -191,7 +188,6 @@ export default function CheckoutPage() {
     }
     if (!PIN_PATTERN.test(pincode)) {
       setPinState("invalid");
-      setPinMessage("Enter a valid 6-digit PIN code.");
       return undefined;
     }
 
@@ -204,18 +200,15 @@ export default function CheckoutPage() {
         if (!result?.serviceable) {
           setQuote(null);
           setPinState("unserviceable");
-          setPinMessage(result?.message || UNSERVICEABLE_MESSAGE);
           return;
         }
         setQuote(result);
         setPinState("serviceable");
-        setPinMessage(`Delivery is available to ${result.pincode}.`);
         if (result.offerError) {
           setOfferError(result.offerError);
           setOfferMessage("");
           if (appliedOfferCode) {
             setAppliedOfferCode("");
-            setOfferInput("");
           }
         } else if (result.offer) {
           setOfferError("");
@@ -227,7 +220,6 @@ export default function CheckoutPage() {
           setOfferError("This offer is no longer eligible for your cart.");
           setOfferMessage("");
           setAppliedOfferCode("");
-          setOfferInput("");
         }
       } catch (error) {
         if (seq !== quoteSeq.current) return;
@@ -237,9 +229,6 @@ export default function CheckoutPage() {
         }
         setQuote(null);
         setPinState("error");
-        setPinMessage(
-          "We could not verify delivery for this PIN code right now. Please try again."
-        );
       }
     }, 400);
 
@@ -269,13 +258,9 @@ export default function CheckoutPage() {
     PIN_PATTERN.test(form.pincode.trim());
 
   const hasSelectedAddress = selectedAddressId !== null && addresses.some((a) => a.id === selectedAddressId);
-  const canPlace = !submitting && formComplete && serviceable && hasSelectedAddress && paymentSuccess;
-
-  function update(event) {
-    const { name, value } = event.target;
-    setForm((current) => ({ ...current, [name]: value }));
-    setOrderError("");
-  }
+  const busy = paying || submitting;
+  const canPayAndPlace =
+    !busy && formComplete && serviceable && hasSelectedAddress && Number(quote?.totalAmount || 0) > 0;
 
   function applyAddress(addr) {
     if (!addr) return;
@@ -424,7 +409,6 @@ export default function CheckoutPage() {
         });
         setQuote(null);
         setPinState("idle");
-        setPinMessage("");
       }
     } catch (error) {
       setAddressError(error.message || "Could not delete address.");
@@ -433,10 +417,42 @@ export default function CheckoutPage() {
     }
   }
 
-  async function handleSubmit(event) {
-    event.preventDefault();
+  async function handlePayAndPlaceOrder(event) {
+    event?.preventDefault?.();
+    if (busy || submittingRef.current) return;
+    if (!formComplete || !serviceable || !hasSelectedAddress || !(quote?.totalAmount > 0)) return;
+
     setOrderError("");
-    if (!canPlace || submittingRef.current) return;
+
+    let confirmedPaymentRef = paymentRef;
+
+    if (!paymentSuccess) {
+      setPaying(true);
+      setPaymentError("");
+      try {
+        const res = await payCheckout({
+          pincode: form.pincode,
+          offer_code: appliedOfferCode || undefined
+        });
+        confirmedPaymentRef = res?.paymentReference || res?.payment_reference || "";
+        setPaymentSuccess(true);
+        setPaymentRef(confirmedPaymentRef);
+      } catch (e) {
+        const data = e?.data || e?.response?.data;
+        if (data?.errors) {
+          const first = Object.values(data.errors)[0];
+          setPaymentError(Array.isArray(first) ? first[0] : String(first));
+        } else if (data?.message) {
+          setPaymentError(data.message);
+        } else {
+          setPaymentError("Payment failed. Please try again.");
+        }
+        setPaymentSuccess(false);
+        setPaying(false);
+        return;
+      }
+      setPaying(false);
+    }
 
     submittingRef.current = true;
     setSubmitting(true);
@@ -448,7 +464,8 @@ export default function CheckoutPage() {
         city: form.city.trim(),
         state: form.state.trim(),
         pincode: form.pincode.trim(),
-        offer_code: appliedOfferCode || undefined
+        offer_code: appliedOfferCode || undefined,
+        payment_reference: confirmedPaymentRef || undefined
       });
       setOrder(created);
       setCart(null);
@@ -473,7 +490,6 @@ export default function CheckoutPage() {
       if (message === UNSERVICEABLE_MESSAGE) {
         setQuote(null);
         setPinState("unserviceable");
-        setPinMessage(UNSERVICEABLE_MESSAGE);
       }
     } finally {
       submittingRef.current = false;
@@ -507,8 +523,8 @@ export default function CheckoutPage() {
 
             <dl className="checkout-facts">
               <div><dt>Order number</dt><dd>{order.orderNumber}</dd></div>
-              <div><dt>Status</dt><dd>{order.status}</dd></div>
-              <div><dt>Payment</dt><dd>{order.paymentStatus} (not collected)</dd></div>
+              <div><dt>Status</dt><dd>{order.statusDisplayName || order.status}</dd></div>
+              <div><dt>Payment</dt><dd>{order.paymentStatusDisplayName || order.paymentStatus}{(order.paymentStatus || "").toUpperCase() !== "PAID" ? " (not collected)" : ""}</dd></div>
               <div><dt>Subtotal</dt><dd>{fmt(order.subtotal)}</dd></div>
               <div><dt>Discount</dt><dd>{fmt(order.discountAmount)}</dd></div>
               <div><dt>Delivery</dt><dd>{fmt(order.deliveryCharge)}</dd></div>
@@ -613,7 +629,7 @@ export default function CheckoutPage() {
       </header>
 
       <div className="checkout-shell">
-        <form id="checkout-form" className="checkout-panel" onSubmit={handleSubmit} noValidate>
+        <form id="checkout-form" className="checkout-panel" onSubmit={(e) => e.preventDefault()} noValidate>
           <span className="eyebrow">Secure checkout</span>
           <h1>Delivery details</h1>
           <p className="checkout-intro">
@@ -825,17 +841,13 @@ export default function CheckoutPage() {
                     setOfferMessage("");
                     if (!code) {
                       setAppliedOfferCode("");
-                      setOfferInput("");
                       setOfferBusy(false);
-                      setOfferMessage("");
-                      setOfferError("");
                       if (serviceable && form.pincode.trim()) {
                         try {
                           const result = await getCheckoutQuote(form.pincode.trim(), "");
                           if (result?.serviceable) {
                             setQuote(result);
                             setPinState("serviceable");
-                            setPinMessage(`Delivery is available to ${result.pincode}.`);
                           }
                         } catch {
                           // ignore
@@ -848,34 +860,28 @@ export default function CheckoutPage() {
                       if (!result?.serviceable) {
                         setOfferError(result?.message || UNSERVICEABLE_MESSAGE);
                         setAppliedOfferCode("");
-                        setOfferInput("");
                         setOfferBusy(false);
                         return;
                       }
                       if (result.offerError) {
                         setOfferError(result.offerError);
                         setAppliedOfferCode("");
-                        setOfferInput("");
                         setOfferBusy(false);
                         return;
                       }
                       if (result.offer) {
                         const applied = result.offer.code;
                         setAppliedOfferCode(applied);
-                        setOfferInput(applied);
                         setQuote(result);
                         setPinState("serviceable");
-                        setPinMessage(`Delivery is available to ${result.pincode}.`);
                         setOfferError("");
                         setOfferMessage(`Offer ${applied} applied.`);
                       } else {
                         setAppliedOfferCode("");
-                        setOfferInput("");
                       }
                     } catch (error) {
                       setOfferError(error?.message || "Could not apply offer code.");
                       setAppliedOfferCode("");
-                      setOfferInput("");
                     } finally {
                       setOfferBusy(false);
                     }
@@ -917,61 +923,41 @@ export default function CheckoutPage() {
               <div className="checkout-pay-section">
                 <button
                   type="button"
-                  className="checkout-btn checkout-pay-btn"
-                  disabled={paying || paymentSuccess || !serviceable || !(quote.totalAmount > 0)}
-                  onClick={async () => {
-                    if (paying || paymentSuccess) return;
-                    setPaying(true);
-                    setPaymentError("");
-                    try {
-                      const res = await payCheckout({
-                        pincode: form.pincode,
-                        offer_code: appliedOfferCode || undefined
-                      });
-                      setPaymentSuccess(true);
-                      setPaymentRef(res?.paymentReference || res?.payment_reference || "");
-                    } catch (e) {
-                      const data = e?.data || e?.response?.data;
-                      if (data?.errors) {
-                        const first = Object.values(data.errors)[0];
-                        setPaymentError(Array.isArray(first) ? first[0] : String(first));
-                      } else if (data?.message) {
-                        setPaymentError(data.message);
-                      } else {
-                        setPaymentError("Payment failed. Please try again.");
-                      }
-                      setPaymentSuccess(false);
-                    } finally {
-                      setPaying(false);
-                    }
-                  }}
+                  className="checkout-btn"
+                  disabled={!canPayAndPlace}
+                  onClick={handlePayAndPlaceOrder}
                 >
-                  {paying ? "PROCESSING..." : paymentSuccess ? "PAID" : `Pay Now ${fmt(quote.totalAmount)}`}
+                  {busy ? "Processing…" : "Pay & Place Order"}
                 </button>
-                <p className="checkout-payment-status">
-                  {paymentSuccess ? `Payment successful. Ref: ${paymentRef || "-"}` : "Complete payment to place your order."}
-                </p>
+                {paymentSuccess && (
+                  <p className="checkout-payment-status">
+                    Payment successful. Ref: {paymentRef || "-"}
+                  </p>
+                )}
                 {paymentError && <p className="field-error">{paymentError}</p>}
+                {!hasSelectedAddress && (
+                  <p className="address-selection-note">
+                    Select a delivery address to place your order.
+                  </p>
+                )}
+                <p className="checkout-secure-note">
+                  Your payment and order will be placed securely.
+                </p>
               </div>
             </>
           ) : (
-            <p className="checkout-summary-note">
-              Delivery charge and the final total are calculated after we confirm
-              your PIN code.
-            </p>
+            <>
+              <p className="checkout-summary-note">
+                Delivery charge and the final total are calculated after we confirm
+                your PIN code.
+              </p>
+              {!hasSelectedAddress && addresses.length > 0 && (
+                <p className="address-selection-note">
+                  Select a delivery address to place your order.
+                </p>
+              )}
+            </>
           )}
-
-          {!hasSelectedAddress && (
-            <p className="address-selection-note">Select a delivery address to place your order.</p>
-          )}
-
-          <button className="checkout-btn" type="submit" form="checkout-form" disabled={!canPlace}>
-            {submitting ? "PLACING ORDER…" : "PLACE ORDER"}
-          </button>
-
-          <p className="checkout-secure-note">
-            {paymentSuccess ? "Payment confirmed. You can place your order." : "Complete payment to place your order."}
-          </p>
         </aside>
       </div>
     </main>
