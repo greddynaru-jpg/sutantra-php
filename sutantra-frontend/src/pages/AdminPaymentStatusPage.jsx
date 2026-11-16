@@ -166,7 +166,6 @@ export default function AdminPaymentStatusPage() {
       }
       actions={
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-          <Link className="button button-light" to="/admin/order-statuses">Order Statuses</Link>
           <button className="button button-primary" type="button" onClick={openAdd}>Add Payment Status</button>
         </div>
       }
