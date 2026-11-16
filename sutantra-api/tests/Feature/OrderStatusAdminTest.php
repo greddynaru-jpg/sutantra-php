@@ -25,7 +25,7 @@ class OrderStatusAdminTest extends TestCase
         $this->actingAs($admin, 'sanctum')
             ->getJson('/api/admin/order-statuses')
             ->assertOk()
-            ->assertJsonFragment(['code' => 'CREATED']);
+            ->assertJsonFragment(['code' => 'ORDER_PLACED']);
     }
 
     public function test_admin_can_add_an_order_status(): void
@@ -34,32 +34,32 @@ class OrderStatusAdminTest extends TestCase
 
         $this->actingAs($admin, 'sanctum')
             ->postJson('/api/admin/order-statuses', [
-                'code' => 'on_hold',
-                'label' => 'On Hold',
+                'code' => 'custom_hold',
+                'label' => 'Custom Hold',
                 'description' => 'Awaiting stock',
-                'sort_order' => 7,
+                'sort_order' => 99,
                 'is_active' => true,
             ])
             ->assertStatus(201)
-            ->assertJsonPath('code', 'ON_HOLD')
-            ->assertJsonPath('label', 'On Hold')
+            ->assertJsonPath('code', 'CUSTOM_HOLD')
+            ->assertJsonPath('label', 'Custom Hold')
             ->assertJsonPath('is_protected', false);
 
-        $this->assertDatabaseHas('order_statuses', [
-            'code' => 'ON_HOLD',
-            'label' => 'On Hold',
+        $this->assertDatabaseHas('order_status_master', [
+            'code' => 'CUSTOM_HOLD',
+            'label' => 'Custom Hold',
             'is_protected' => false,
         ]);
     }
 
-    public function test_admin_can_update_and_delete_a_custom_order_status(): void
+    public function test_admin_can_update_and_deactivate_a_custom_order_status(): void
     {
         $admin = $this->makeUser(User::ROLE_ADMIN);
 
         $created = $this->actingAs($admin, 'sanctum')
             ->postJson('/api/admin/order-statuses', [
-                'code' => 'ON_HOLD',
-                'label' => 'On Hold',
+                'code' => 'CUSTOM_HOLD',
+                'label' => 'Custom Hold',
             ])
             ->assertStatus(201)
             ->json();
@@ -73,11 +73,13 @@ class OrderStatusAdminTest extends TestCase
             ->assertJsonPath('label', 'Waiting')
             ->assertJsonPath('is_active', false);
 
+        // Master records are not physically deleted; deactivate endpoint/behavior is used instead.
         $this->actingAs($admin, 'sanctum')
-            ->deleteJson("/api/admin/order-statuses/{$created['id']}")
-            ->assertOk();
+            ->patchJson("/api/admin/order-statuses/{$created['id']}/active", ['is_active' => true])
+            ->assertOk()
+            ->assertJsonPath('is_active', true);
 
-        $this->assertDatabaseMissing('order_statuses', ['id' => $created['id']]);
+        $this->assertDatabaseHas('order_status_master', ['id' => $created['id'], 'code' => 'CUSTOM_HOLD']);
     }
 
     public function test_order_status_endpoints_keep_their_access_rules(): void

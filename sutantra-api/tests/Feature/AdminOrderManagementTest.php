@@ -66,8 +66,8 @@ class AdminOrderManagementTest extends TestCase
         $customer = $this->makeUser();
 
         $this->actingAs($admin, 'sanctum')->postJson('/api/admin/order-statuses', [
-            'code' => 'ON_HOLD',
-            'label' => 'On Hold',
+            'code' => 'CUSTOM_HOLD',
+            'label' => 'Custom Hold',
         ])->assertStatus(201);
 
         $created = $this->makeOrder($customer, [
@@ -75,7 +75,7 @@ class AdminOrderManagementTest extends TestCase
             'created_at' => '2026-10-05 10:00:00',
         ]);
         $onHold = $this->makeOrder($customer, [
-            'status' => 'ON_HOLD',
+            'status' => 'CUSTOM_HOLD',
             'created_at' => '2026-10-06 11:00:00',
         ]);
         $this->makeOrder($customer, [
@@ -89,7 +89,7 @@ class AdminOrderManagementTest extends TestCase
             ->assertJsonCount(3, 'data');
 
         $this->actingAs($admin, 'sanctum')
-            ->getJson('/api/admin/orders?status=ON_HOLD&period=custom&date_from=2026-10-01&date_to=2026-10-31')
+            ->getJson('/api/admin/orders?status=CUSTOM_HOLD&period=custom&date_from=2026-10-01&date_to=2026-10-31')
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $onHold->id);
@@ -116,16 +116,16 @@ class AdminOrderManagementTest extends TestCase
         $customer = $this->makeUser();
 
         OrderStatus::create([
-            'code' => 'ON_HOLD',
-            'label' => 'On Hold',
-            'sort_order' => 7,
+            'code' => 'CUSTOM_HOLD',
+            'label' => 'Custom Hold',
+            'sort_order' => 99,
             'is_active' => true,
             'is_protected' => false,
         ]);
         OrderStatus::create([
             'code' => 'ARCHIVED',
             'label' => 'Archived',
-            'sort_order' => 8,
+            'sort_order' => 100,
             'is_active' => false,
             'is_protected' => false,
         ]);
@@ -137,7 +137,7 @@ class AdminOrderManagementTest extends TestCase
             'created_at' => '2026-10-05 10:00:00',
         ]);
         $this->makeOrder($customer, [
-            'status' => Order::STATUS_CONFIRMED,
+            'status' => 'ORDER_CONFIRMED',
             'payment_status' => Order::PAYMENT_PAID,
             'total_amount' => 200,
             'created_at' => '2026-10-05 12:00:00',
@@ -149,7 +149,7 @@ class AdminOrderManagementTest extends TestCase
             'created_at' => '2026-10-06 09:00:00',
         ]);
         $this->makeOrder($customer, [
-            'status' => 'ON_HOLD',
+            'status' => 'CUSTOM_HOLD',
             'payment_status' => Order::PAYMENT_PAID,
             'total_amount' => 400,
             'created_at' => '2026-10-06 10:00:00',
@@ -177,14 +177,14 @@ class AdminOrderManagementTest extends TestCase
         $breakdown = collect($response->json('statusBreakdown'))->keyBy('code');
 
         $this->assertSame(1, $breakdown['CREATED']['count']);
-        $this->assertSame(1, $breakdown['CONFIRMED']['count']);
+        $this->assertSame(1, $breakdown['ORDER_CONFIRMED']['count']);
         $this->assertSame(1, $breakdown['CANCELLED']['count']);
-        $this->assertSame(1, $breakdown['ON_HOLD']['count']);
+        $this->assertSame(1, $breakdown['CUSTOM_HOLD']['count']);
         $this->assertSame(0, $breakdown['ARCHIVED']['count']);
         $this->assertSame(1, $breakdown['LEGACY_STATUS']['count']);
         $this->assertFalse($breakdown['LEGACY_STATUS']['is_configured']);
         $this->assertFalse($breakdown['ARCHIVED']['is_active']);
-        $this->assertSame(20, $breakdown['ON_HOLD']['percentage']);
+        $this->assertSame(20, $breakdown['CUSTOM_HOLD']['percentage']);
         $this->assertEqualsWithDelta(100.0, $breakdown->sum('percentage'), 0.1);
 
         $trend = collect($response->json('trend'));
@@ -264,7 +264,7 @@ class AdminOrderManagementTest extends TestCase
             ->getJson("/api/admin/orders/{$order->id}")
             ->assertOk()
             ->assertJsonPath('data.id', $order->id)
-            ->assertJsonPath('data.allowedTransitions', ['CONFIRMED', 'CANCELLED']);
+            ->assertJsonPath('data.allowedTransitions', ['ORDER_CONFIRMED', 'CANCELLED']);
 
         $this->actingAs($admin, 'sanctum')
             ->patchJson("/api/admin/orders/{$order->id}/status", ['status' => 'DELIVERED'])
@@ -273,9 +273,9 @@ class AdminOrderManagementTest extends TestCase
         $this->actingAs($admin, 'sanctum')
             ->patchJson("/api/admin/orders/{$order->id}/status", ['status' => 'CONFIRMED'])
             ->assertOk()
-            ->assertJsonPath('data.status', 'CONFIRMED')
-            ->assertJsonPath('data.allowedTransitions', ['PROCESSING', 'SHIPPED', 'CANCELLED']);
+            ->assertJsonPath('data.status', 'ORDER_CONFIRMED')
+            ->assertJsonPath('data.allowedTransitions', ['PROCESSING', 'OUT_FOR_DELIVERY', 'CANCELLED']);
 
-        $this->assertDatabaseHas('orders', ['id' => $order->id, 'status' => 'CONFIRMED']);
+        $this->assertDatabaseHas('orders', ['id' => $order->id, 'status' => 'ORDER_CONFIRMED']);
     }
 }

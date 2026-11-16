@@ -203,10 +203,16 @@ class CheckoutTest extends TestCase
         $cart = $this->fillCart($user, [[$product, 2]]);
         $this->pincode('500001', 40.00);
 
+        $initialStatus = \App\Models\OrderStatus::query()
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->value('code') ?? Order::STATUS_CREATED;
+
         $response = $this->actingAs($user, 'sanctum')
             ->postJson('/api/orders', $this->address())
             ->assertCreated()
-            ->assertJsonPath('data.status', Order::STATUS_CREATED)
+            ->assertJsonPath('data.status', $initialStatus)
             ->assertJsonPath('data.paymentStatus', Order::PAYMENT_PENDING)
             ->assertJsonPath('data.subtotal', 260)
             ->assertJsonPath('data.deliveryCharge', 40)
@@ -219,7 +225,7 @@ class CheckoutTest extends TestCase
         $this->assertDatabaseHas('orders', [
             'id' => $orderId,
             'user_id' => $user->id,
-            'status' => Order::STATUS_CREATED,
+            'status' => $initialStatus,
             'payment_status' => Order::PAYMENT_PENDING,
             'subtotal' => 260,
             'delivery_charge' => 40,

@@ -9,7 +9,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('order_statuses', function (Blueprint $table) {
+        Schema::create('order_status_master', function (Blueprint $table) {
             $table->id();
             $table->string('code', 30)->unique();
             $table->string('label', 100);
@@ -21,19 +21,22 @@ return new class extends Migration
         });
 
         $statuses = [
-            ['code' => 'CREATED', 'label' => 'Pending Approval', 'sort_order' => 1, 'is_protected' => true],
-            ['code' => 'CONFIRMED', 'label' => 'Approved', 'sort_order' => 2, 'is_protected' => true],
-            ['code' => 'PROCESSING', 'label' => 'Processing', 'sort_order' => 3, 'is_protected' => true],
-            ['code' => 'SHIPPED', 'label' => 'Dispatched', 'sort_order' => 4, 'is_protected' => true],
-            ['code' => 'DELIVERED', 'label' => 'Delivered', 'sort_order' => 5, 'is_protected' => true],
-            ['code' => 'CANCELLED', 'label' => 'Cancelled', 'sort_order' => 6, 'is_protected' => true],
+            ['code' => 'ORDER_PLACED', 'label' => 'Order Placed', 'description' => 'Customer has successfully placed the order.', 'sort_order' => 1, 'is_protected' => false],
+            ['code' => 'ORDER_CONFIRMED', 'label' => 'Order Confirmed', 'description' => 'Order has been reviewed and accepted by the business.', 'sort_order' => 2, 'is_protected' => false],
+            ['code' => 'PROCESSING', 'label' => 'Processing', 'description' => 'Order is being processed for fulfilment.', 'sort_order' => 3, 'is_protected' => false],
+            ['code' => 'PREPARING', 'label' => 'Preparing', 'description' => 'Food items are being freshly prepared.', 'sort_order' => 4, 'is_protected' => false],
+            ['code' => 'READY_FOR_PICKUP', 'label' => 'Ready for Pickup', 'description' => 'Order is packed and ready for pickup or dispatch.', 'sort_order' => 5, 'is_protected' => false],
+            ['code' => 'OUT_FOR_DELIVERY', 'label' => 'Out for Delivery', 'description' => 'Order has been dispatched to the customer.', 'sort_order' => 6, 'is_protected' => false],
+            ['code' => 'DELIVERED', 'label' => 'Delivered', 'description' => 'Order has been successfully delivered.', 'sort_order' => 7, 'is_protected' => false],
+            ['code' => 'CANCELLED', 'label' => 'Cancelled', 'description' => 'Order has been cancelled.', 'sort_order' => 8, 'is_protected' => false],
+            ['code' => 'ON_HOLD', 'label' => 'On Hold', 'description' => 'Order processing is temporarily paused.', 'sort_order' => 9, 'is_protected' => false],
         ];
 
         foreach ($statuses as $status) {
-            DB::table('order_statuses')->insert([
+            DB::table('order_status_master')->insert([
                 'code' => $status['code'],
                 'label' => $status['label'],
-                'description' => null,
+                'description' => $status['description'],
                 'sort_order' => $status['sort_order'],
                 'is_active' => true,
                 'is_protected' => $status['is_protected'],
@@ -45,6 +48,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists('order_statuses');
+        Schema::dropIfExists('order_status_master');
     }
 };
