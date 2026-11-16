@@ -34,7 +34,7 @@ class OrderStatusAdminTest extends TestCase
 
         $this->actingAs($admin, 'sanctum')
             ->postJson('/api/admin/order-statuses', [
-                'code' => 'custom_hold',
+                'code' => 'CUSTOM_HOLD',
                 'label' => 'Custom Hold',
                 'description' => 'Awaiting stock',
                 'sort_order' => 99,
