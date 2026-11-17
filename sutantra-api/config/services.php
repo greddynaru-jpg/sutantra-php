@@ -35,4 +35,38 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | WhatsApp / SpringEdge
+    |--------------------------------------------------------------------------
+    |
+    | Shared credentials reuse the existing environment variable names. The OTP
+    | flow in AuthController keeps reading its own configuration and is not
+    | changed by these order-notification settings.
+    |
+    */
+    'whatsapp' => [
+        'service_url' => env('WHATSAPP_SERVICE_URL'),
+        'api_key' => env('WHATSAPP_API_KEY', env('WHATSAPP_ACCESS_TOKEN')),
+        'access_token' => env('WHATSAPP_ACCESS_TOKEN'),
+        'phone_number_id' => env('WHATSAPP_PHONE_NUMBER_ID'),
+        // Optional CA bundle path. When empty, Laravel/PHP's secure default
+        // trust store is used; certificate verification is never disabled.
+        'ca_bundle' => env('WHATSAPP_CA_BUNDLE'),
+        'language' => env('WHATSAPP_TEMPLATE_LANGUAGE', 'en'),
+        'timeout' => (int) env('WHATSAPP_TIMEOUT', 15),
+        'templates' => [
+            'order_confirmed' => env('WHATSAPP_ORDER_CONFIRMED_TEMPLATE', 'order_confirmed'),
+            'order_status_update' => env(
+                'WHATSAPP_ORDER_STATUS_TEMPLATE',
+                env('WHATSAPP_ORDER_STATUS_UPDATE_TEMPLATE', 'order_status_update')
+            ),
+        ],
+        // Each order template can use its own approved language.
+        'template_languages' => [
+            'order_confirmed' => env('WHATSAPP_ORDER_CONFIRMED_LANGUAGE', env('WHATSAPP_TEMPLATE_LANGUAGE', 'en')),
+            'order_status_update' => env('WHATSAPP_ORDER_STATUS_LANGUAGE', env('WHATSAPP_TEMPLATE_LANGUAGE', 'en')),
+        ],
+    ],
+
 ];

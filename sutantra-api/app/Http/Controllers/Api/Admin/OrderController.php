@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\OrderResource;
 use App\Models\Order;
 use App\Models\OrderStatus;
+use App\Services\WhatsAppOrderNotificationService;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Http\JsonResponse;
@@ -64,6 +65,11 @@ class OrderController extends Controller
     }
 
     private const PERIODS = ['daily', 'weekly', 'monthly', 'yearly', 'custom'];
+
+    public function __construct(
+        private readonly WhatsAppOrderNotificationService $whatsappNotifications
+    ) {
+    }
 
     /**
      * Paginated order list. Every filter is optional, so a direct API call
@@ -282,6 +288,10 @@ class OrderController extends Controller
 
         $order->status = $targetCode;
         $order->save();
+
+        // Notify only after a real, validated status change has been persisted.
+        // The service records failures without affecting this response.
+        $this->whatsappNotifications->sendOrderStatusUpdate($order, $current, $targetCode);
 
         return $this->orderResponse($order->fresh());
     }

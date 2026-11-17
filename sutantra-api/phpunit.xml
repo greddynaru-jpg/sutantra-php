@@ -43,5 +43,14 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- Safety: never send real WhatsApp messages from automated tests.
+             Tests that exercise the notification service set the config values
+             explicitly and use Http::fake(). -->
+        <env name="WHATSAPP_SERVICE_URL" value="" force="true"/>
+        <env name="WHATSAPP_API_KEY" value="" force="true"/>
+        <env name="WHATSAPP_ACCESS_TOKEN" value="" force="true"/>
+        <env name="WHATSAPP_PHONE_NUMBER_ID" value="" force="true"/>
+        <env name="WHATSAPP_TEMPLATE_NAME" value="sutantra_otp" force="true"/>
+        <env name="WHATSAPP_TEMPLATE_LANGUAGE" value="en" force="true"/>
     </php>
 </phpunit>

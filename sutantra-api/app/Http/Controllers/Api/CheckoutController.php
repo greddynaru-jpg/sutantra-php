@@ -12,6 +12,7 @@ use App\Models\Order;
 use App\Models\OrderStatus;
 use App\Models\Payment;
 use App\Models\Product;
+use App\Services\WhatsAppOrderNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -30,6 +31,11 @@ use Illuminate\Validation\ValidationException;
 class CheckoutController extends Controller
 {
     private const UNSERVICEABLE_MESSAGE = 'Delivery is not available for this location.';
+
+    public function __construct(
+        private readonly WhatsAppOrderNotificationService $whatsappNotifications
+    ) {
+    }
 
     /**
      * POST /api/checkout/quote
@@ -358,6 +364,11 @@ class CheckoutController extends Controller
 
             return $order->load('items');
         });
+
+        // Notify only after the order (or the paid placeholder it finalized) is
+        // committed. SpringEdge is never called inside the transaction above,
+        // and the service never throws into the order response.
+        $this->whatsappNotifications->sendOrderConfirmation($order);
 
         return (new OrderResource($order))->response()->setStatusCode(201);
     }
