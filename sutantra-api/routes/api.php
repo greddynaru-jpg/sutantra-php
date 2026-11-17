@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\CatalogController;
 use App\Http\Controllers\Api\CheckoutController;
+use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\MediaController;
 use App\Http\Resources\UserResource;
@@ -96,6 +97,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/orders', [CheckoutController::class, 'store']);
     Route::get('/orders', [OrderController::class, 'index']);
     Route::get('/orders/{order}', [OrderController::class, 'show']);
+    // Invoice endpoints use distinct names so the existing WhatsApp invoice-link
+    // check for Route::has('orders.invoice') remains false and unchanged.
+    Route::get('/orders/{order}/invoice', [InvoiceController::class, 'show'])->name('orders.invoice.data');
+    Route::get('/orders/{order}/invoice/download', [InvoiceController::class, 'download'])->name('orders.invoice.download');
     Route::get('/addresses', [App\Http\Controllers\Api\UserAddressController::class, 'index']);
     Route::post('/addresses', [App\Http\Controllers\Api\UserAddressController::class, 'store']);
     Route::put('/addresses/{userAddress}', [App\Http\Controllers\Api\UserAddressController::class, 'update']);

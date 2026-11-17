@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import SiteHeader from "../components/SiteHeader";
+import InvoiceModal from "../components/invoice/InvoiceModal";
+import { DownloadIcon, EyeIcon } from "../components/invoice/InvoiceIcons";
 import { getCatalogOrderStatuses, getCatalogPaymentStatuses, getOrders } from "../services/api";
+import { downloadInvoice } from "../services/invoiceApi";
 import { productImageUrl } from "../utils/mediaHelpers";
 
 function fmt(value) {
@@ -65,6 +68,8 @@ export default function MyOrdersPage() {
   const [error, setError] = useState("");
   const [orderStatuses, setOrderStatuses] = useState([]);
   const [paymentStatuses, setPaymentStatuses] = useState([]);
+  const [invoiceOrder, setInvoiceOrder] = useState(null);
+  const [invoiceError, setInvoiceError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -124,6 +129,15 @@ export default function MyOrdersPage() {
     return (code) => m.get(String(code || "").toUpperCase()) || code || "Pending";
   }, [paymentStatuses]);
 
+  const handleInvoiceDownload = async (order) => {
+    setInvoiceError("");
+    try {
+      await downloadInvoice(order.id, order.orderNumber || order.order_number || order.id);
+    } catch (err) {
+      setInvoiceError(err.message || "Unable to download invoice.");
+    }
+  };
+
   return (
     <main className="orders-page my-orders-page">
       <SiteHeader />
@@ -144,6 +158,10 @@ export default function MyOrdersPage() {
             Continue Shopping →
           </Link>
         </div>
+
+        {invoiceError && (
+          <div className="orders-error" role="alert">{invoiceError}</div>
+        )}
 
         {loading && <div className="orders-loading">Loading your orders…</div>}
 
@@ -228,9 +246,30 @@ export default function MyOrdersPage() {
                         {fmt(order.totalAmount || order.total_amount)}
                       </span>
                     </div>
-                    <Link className="button button-primary order-view-btn" to={`/orders/${order.id}`}>
-                      View Details
-                    </Link>
+                    <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                      <button
+                        className="button button-light"
+                        type="button"
+                        onClick={() => setInvoiceOrder(order)}
+                        title="View Invoice"
+                        aria-label={`View Invoice for order ${order.orderNumber || order.id}`}
+                        style={{ minHeight: 32, padding: "0 10px", gap: 6, fontSize: 12 }}
+                      >
+                        <EyeIcon />
+                        <span>View Invoice</span>
+                      </button>
+                      <button
+                        className="button button-light"
+                        type="button"
+                        onClick={() => handleInvoiceDownload(order)}
+                        title="Download Invoice"
+                        aria-label={`Download Invoice for order ${order.orderNumber || order.id}`}
+                        style={{ minHeight: 32, padding: "0 10px", gap: 6, fontSize: 12 }}
+                      >
+                        <DownloadIcon />
+                        <span>Download Invoice</span>
+                      </button>
+                    </div>
                   </div>
                 </article>
               );
@@ -238,6 +277,13 @@ export default function MyOrdersPage() {
           </div>
         )}
       </div>
+
+      {invoiceOrder && (
+        <InvoiceModal
+          orderId={invoiceOrder.id}
+          onClose={() => setInvoiceOrder(null)}
+        />
+      )}
     </main>
   );
 }

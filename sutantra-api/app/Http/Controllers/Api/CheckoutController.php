@@ -13,6 +13,7 @@ use App\Models\OrderStatus;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Services\WhatsAppOrderNotificationService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -623,13 +624,30 @@ class CheckoutController extends Controller
         return ['items' => $items, 'lines' => $lines, 'subtotal' => $subtotal];
     }
 
+    /**
+     * New orders use SF + YYMMDD + HHMMSS (IST) + four secure uppercase letters.
+     *
+     * The application timezone stays UTC for stored timestamps; only the order
+     * number intentionally uses Asia/Kolkata so its printed date/time is IST.
+     */
     private function newOrderNumber(): string
     {
-        do {
-            $number = 'SF'.now()->format('ymd').strtoupper(Str::random(6));
-        } while (Order::query()->where('order_number', $number)->exists());
+        $stamp = Carbon::now('Asia/Kolkata')->format('ymdHis');
 
-        return $number;
+        for ($attempt = 0; $attempt < 10; $attempt++) {
+            $suffix = '';
+            for ($i = 0; $i < 4; $i++) {
+                $suffix .= chr(random_int(ord('A'), ord('Z')));
+            }
+
+            $number = 'SF'.$stamp.$suffix;
+
+            if (! Order::query()->where('order_number', $number)->exists()) {
+                return $number;
+            }
+        }
+
+        throw new \RuntimeException('Unable to generate a unique order number.');
     }
 
     /**

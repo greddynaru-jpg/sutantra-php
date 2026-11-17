@@ -256,10 +256,6 @@ export function getOrders(params = {}) {
   return request(`/api/orders${qs ? `?${qs}` : ""}`);
 }
 
-export function getOrder(id) {
-  return request(`/api/orders/${id}`);
-}
-
 // Admin Orders
 function adminOrderQuery(params = {}) {
   const query = new URLSearchParams();

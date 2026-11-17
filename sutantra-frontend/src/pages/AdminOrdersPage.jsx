@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import AdminLayout from "../components/AdminLayout";
+import { EyeIcon, PrinterIcon } from "../components/admin/AdminOrderActionIcons";
+import AdminOrderModal from "../components/admin/AdminOrderModal";
 import {
   FulfilmentOverviewChart,
   OrderTrendChart,
@@ -94,6 +96,8 @@ export default function AdminOrdersPage() {
   const [paymentStatuses, setPaymentStatuses] = useState([]);
   const [statusError, setStatusError] = useState("");
   const [refreshToken, setRefreshToken] = useState(0);
+  const [orderModal, setOrderModal] = useState(null);
+  const [modalBusyId, setModalBusyId] = useState(null);
   const listRef = useRef(null);
 
   const customInvalid =
@@ -327,6 +331,21 @@ export default function AdminOrdersPage() {
 
   function refreshData() {
     setRefreshToken((value) => value + 1);
+  }
+
+  function openOrderModal(order, mode) {
+    if (modalBusyId) return;
+    setModalBusyId(order.id);
+    setOrderModal({
+      id: order.id,
+      orderNumber: order.orderNumber || order.order_number || order.id,
+      mode
+    });
+  }
+
+  function closeOrderModal() {
+    setOrderModal(null);
+    setModalBusyId(null);
   }
 
   const currentPage = pagination?.current_page || page;
@@ -752,9 +771,30 @@ export default function AdminOrdersPage() {
                             />
                           </td>
                           <td className="admin-col-actions">
-                            <Link className="admin-link-btn" to={`/admin/orders/${order.id}`}>
-                              View Details
-                            </Link>
+                            <div className="admin-order-actions">
+                              <button
+                                className="button button-light admin-icon-btn"
+                                type="button"
+                                title={modalBusyId === order.id ? "Loading order…" : "View Order"}
+                                aria-label={`View Order for order ${order.orderNumber || order.order_number || order.id}`}
+                                aria-busy={modalBusyId === order.id}
+                                disabled={Boolean(modalBusyId)}
+                                onClick={() => openOrderModal(order, "view")}
+                              >
+                                <EyeIcon />
+                              </button>
+                              <button
+                                className="button button-light admin-icon-btn"
+                                type="button"
+                                title={modalBusyId === order.id ? "Loading order…" : "Print Order"}
+                                aria-label={`Print Order for order ${order.orderNumber || order.order_number || order.id}`}
+                                aria-busy={modalBusyId === order.id}
+                                disabled={Boolean(modalBusyId)}
+                                onClick={() => openOrderModal(order, "print")}
+                              >
+                                <PrinterIcon />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -796,6 +836,17 @@ export default function AdminOrdersPage() {
           </div>
         </section>
       </div>
+
+      {orderModal && (
+        <AdminOrderModal
+          orderId={orderModal.id}
+          orderNumber={orderModal.orderNumber}
+          mode={orderModal.mode}
+          statuses={statusDefinitions}
+          onUpdated={refreshData}
+          onClose={closeOrderModal}
+        />
+      )}
     </AdminLayout>
   );
 }
