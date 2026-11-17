@@ -50,6 +50,7 @@ return [
         'api_key' => env('WHATSAPP_API_KEY', env('WHATSAPP_ACCESS_TOKEN')),
         'access_token' => env('WHATSAPP_ACCESS_TOKEN'),
         'phone_number_id' => env('WHATSAPP_PHONE_NUMBER_ID'),
+        'template_name' => env('WHATSAPP_TEMPLATE_NAME'),
         // Optional CA bundle path. When empty, Laravel/PHP's secure default
         // trust store is used; certificate verification is never disabled.
         'ca_bundle' => env('WHATSAPP_CA_BUNDLE'),

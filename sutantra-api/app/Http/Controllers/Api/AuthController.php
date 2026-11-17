@@ -191,11 +191,11 @@ class AuthController extends Controller
                 // already in expected format
             }
 
-            $phoneNumberId = (string) env('WHATSAPP_PHONE_NUMBER_ID', '');
-            $apiKey = (string) env('WHATSAPP_API_KEY', env('WHATSAPP_ACCESS_TOKEN', ''));
-            $serviceUrl = (string) env('WHATSAPP_SERVICE_URL', '');
-            $templateName = (string) env('WHATSAPP_TEMPLATE_NAME', 'sutantra_otp');
-            $templateLang = (string) env('WHATSAPP_TEMPLATE_LANGUAGE', 'en');
+            $phoneNumberId = (string) config('services.whatsapp.phone_number_id');
+            $apiKey = (string) config('services.whatsapp.api_key');
+            $serviceUrl = (string) config('services.whatsapp.service_url');
+            $templateName = (string) config('services.whatsapp.template_name');
+            $templateLang = (string) config('services.whatsapp.language');
 
             // Ensure approved template is used.
             if ($templateName === '' || $templateName === 'ysutantra_otp') {
