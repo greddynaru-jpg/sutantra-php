@@ -68,6 +68,7 @@ Route::prefix('auth')->group(function () {
     // Step 1 of the two-step login UI ("Get Verification Code"). Validates the
     // identifier only; no code is generated or sent yet.
     Route::post('/request-code', [AuthController::class, 'requestVerificationCode'])->middleware('throttle:login');
+    Route::post('/verify-otp', [AuthController::class, 'verifyOtp'])->middleware('throttle:login');
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);

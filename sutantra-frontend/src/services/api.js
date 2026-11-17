@@ -114,6 +114,14 @@ export function requestVerificationCode(identifier) {
   });
 }
 
+// Step 2: verify the WhatsApp OTP and obtain the Sanctum login token.
+export function verifyOtpLogin(identifier, verificationCode) {
+  return request("/api/auth/verify-otp", {
+    method: "POST",
+    body: JSON.stringify({ identifier, verification_code: verificationCode })
+  });
+}
+
 export function registerUser(user) {
   return request("/api/auth/register", {
     method: "POST",

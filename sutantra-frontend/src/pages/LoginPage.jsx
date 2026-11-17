@@ -8,7 +8,7 @@ import { safeRedirect, withRedirect } from "../utils/navigation";
 export default function LoginPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { login, authError } = useAuth();
+  const { loginWithOtp, authError } = useAuth();
   const redirectTo = safeRedirect(location.search);
 
   // Two-step flow: "identifier" (Get Verification Code) → "credential" (Login).
@@ -40,7 +40,7 @@ export default function LoginPage() {
     }
   }
 
-  // Step 2: the "Verification Code" field carries the existing password.
+  // Step 2: verify the WhatsApp OTP and complete login.
   async function submitCode(event) {
     event.preventDefault();
     setError("");
@@ -51,7 +51,7 @@ export default function LoginPage() {
 
     setBusy(true);
     try {
-      const user = await login(identifier.trim(), code);
+      const user = await loginWithOtp(identifier.trim(), code.trim());
       navigate(redirectTo || roleHome(user.role), { replace: true });
     } catch (requestError) {
       setError(requestError.message || "Unable to log in. Please try again.");
@@ -119,9 +119,10 @@ export default function LoginPage() {
                 Verification Code
                 <input
                   name="code"
-                  type="password"
-                  autoComplete="current-password"
-                  maxLength="255"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength="6"
                   placeholder="Enter verification code"
                   value={code}
                   onChange={(event) => setCode(event.target.value)}

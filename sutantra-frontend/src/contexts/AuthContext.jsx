@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { getCurrentUser, loginUser, logoutUser, setToken, getToken } from "../services/api";
+import { getCurrentUser, loginUser, logoutUser, setToken, getToken, verifyOtpLogin } from "../services/api";
 
 // Role → landing route after login/registration.
 export function roleHome(role) {
@@ -47,6 +47,14 @@ export function AuthProvider({ children }) {
     return result.user;
   }
 
+  async function loginWithOtp(identifier, verificationCode) {
+    const result = await verifyOtpLogin(identifier, verificationCode);
+    setToken(result.token);
+    setUser(result.user);
+    setAuthError("");
+    return result.user;
+  }
+
   async function logout() {
     try {
       await logoutUser();
@@ -63,7 +71,7 @@ export function AuthProvider({ children }) {
   }
 
   const value = useMemo(
-    () => ({ user, loading, authError, login, logout, updateUser }),
+    () => ({ user, loading, authError, login, loginWithOtp, logout, updateUser }),
     [user, loading, authError]
   );
 
